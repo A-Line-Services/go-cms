@@ -1,0 +1,29 @@
+package components
+
+import cms "go.a-line.be/cms"
+
+// Link renders a CMS URL field as an <a> tag.
+// The fallback URL appears when CMS has no content.
+// The children slot allows custom link content.
+templ Link(p cms.PageData, key, label, fallback string) {
+	<a
+		data-cms-field={ key }
+		data-cms-type="url"
+		data-cms-label={ label }
+		href={ templ.SafeURL(p.URLOr(key, fallback)) }
+	>
+		{ children... }
+	</a>
+}
+
+// LinkEntry renders a CMS URL field for a subcollection entry.
+templ LinkEntry(e cms.EntryData, key, label, fallback string) {
+	<a
+		data-cms-field={ key }
+		data-cms-type="url"
+		data-cms-label={ label }
+		href={ templ.SafeURL(e.URLOr(key, fallback)) }
+	>
+		{ children... }
+	</a>
+}

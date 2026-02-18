@@ -1,0 +1,15 @@
+package components
+
+// Meta renders CMS template metadata as <meta> tags for sync discovery.
+templ Meta(templateSlug, templateLabel string) {
+	<meta name="cms-template" content={ templateSlug }/>
+	<meta name="cms-template-label" content={ templateLabel }/>
+}
+
+// CollectionMeta renders CMS collection metadata for sync discovery.
+templ CollectionMeta(templateSlug, templateLabel, collectionKey, collectionLabel string) {
+	<meta name="cms-template" content={ templateSlug }/>
+	<meta name="cms-template-label" content={ templateLabel }/>
+	<meta name="cms-collection" content={ collectionKey }/>
+	<meta name="cms-collection-label" content={ collectionLabel }/>
+}

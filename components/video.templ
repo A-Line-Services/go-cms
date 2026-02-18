@@ -1,0 +1,15 @@
+package components
+
+import cms "go.a-line.be/cms"
+
+// Video renders a CMS video field as an <iframe>.
+// The fallback URL appears when CMS has no content.
+templ Video(p cms.PageData, key, label, fallback string) {
+	<iframe
+		data-cms-field={ key }
+		data-cms-type="video"
+		data-cms-label={ label }
+		src={ p.TextOr(key, fallback) }
+		allowfullscreen
+	></iframe>
+}

@@ -1,0 +1,34 @@
+set dotenv-load
+
+# Generate templ Go code + route registrations
+generate:
+    ~/go/bin/templ generate
+    go run . generate
+
+# Build static HTML + sync.json to dist/
+build:
+    go run . build
+
+# Build static HTML only (no sync.json)
+build-static:
+    go run . build static
+
+# Build sync.json only (no HTML)
+build-sync:
+    go run . build sync
+
+# Serve the built site locally on :8080
+serve:
+    go run . serve
+
+# Dev server with rebuild endpoint on :3000
+dev:
+    go run . dev
+
+# Build + POST sync payload to CMS
+sync:
+    go run . sync
+
+# Clean build output
+clean:
+    rm -rf dist .dev-dist

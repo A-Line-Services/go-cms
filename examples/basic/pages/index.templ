@@ -1,0 +1,55 @@
+package pages
+
+import (
+	cms "go.a-line.be/cms"
+	c "go.a-line.be/cms/components"
+)
+
+// indexContent is the inner content for the homepage.
+templ indexContent(p cms.PageData) {
+	@c.Meta("homepage", "Homepage")
+	<h1>
+		@c.Text(p, "title", "Page Title", "Welcome to Acme Corp")
+	</h1>
+	@c.Image(p, "hero_image", "Hero Image", cms.ImageValue{
+		Alt: "Hero banner image",
+	})
+	<section>
+		<h2>
+			@c.Text(p, "subtitle", "Subtitle", "Build something amazing")
+		</h2>
+		@c.RichText(p, "body", "Main Content", "<p>We help businesses grow with modern tools and thoughtful design.</p>")
+	</section>
+	<section>
+		<h2>Pricing</h2>
+		<div class="card">
+			<h3>
+				@c.Text(p, "plan_name", "Plan Name", "Pro Plan")
+			</h3>
+			<div class="price">
+				@c.Currency(p, "price", "Monthly Price", 29.00)
+			</div>
+			@c.RichText(p, "plan_features", "Plan Features", "<ul><li>Unlimited projects</li><li>Priority support</li><li>Custom domain</li></ul>")
+		</div>
+	</section>
+	<section>
+		<h2>Partners</h2>
+		<div data-cms-subcollection="partners" data-cms-label="Partners">
+			for _, entry := range p.SubcollectionOr("partners") {
+				<div class="card" data-cms-entry>
+					@c.LinkEntry(entry, "link", "Partner URL", "https://partner.example.com") {
+						@c.ImageEntry(entry, "logo", "Partner Logo", cms.ImageValue{
+							Alt: "Partner logo",
+						})
+					}
+					@c.TextEntry(entry, "name", "Partner Name", "Partner Name")
+				</div>
+			}
+		</div>
+	</section>
+}
+
+// IndexPage renders the full homepage with layout.
+templ IndexPage(p cms.PageData) {
+	@Layout(p, indexContent(p))
+}

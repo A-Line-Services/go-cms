@@ -1,0 +1,46 @@
+package pages
+
+import (
+	cms "go.a-line.be/cms"
+	c "go.a-line.be/cms/components"
+)
+
+templ aboutContent(p cms.PageData) {
+	@c.Meta("about", "About Us")
+	<h1>
+		@c.Text(p, "title", "Page Title", "About Us")
+	</h1>
+	@c.RichText(p, "intro", "Introduction", "<p>We are a team of passionate builders creating tools that empower businesses.</p>")
+	<section>
+		<h2>Our Team</h2>
+		<div class="team-grid" data-cms-subcollection="team" data-cms-label="Team Members">
+			for _, member := range p.SubcollectionOr("team") {
+				<div class="team-member" data-cms-entry>
+					@c.ImageEntry(member, "photo", "Photo", cms.ImageValue{
+						Alt: "Team member photo",
+					})
+					<h3>
+						@c.TextEntry(member, "name", "Name", "Team Member")
+					</h3>
+					<span class="badge">
+						@c.TextEntry(member, "role", "Role", "Role")
+					</span>
+				</div>
+			}
+		</div>
+	</section>
+	<section>
+		<h2>Contact</h2>
+		<p>
+			Email us at
+			@c.Link(p, "contact_email", "Contact Email", "mailto:hello@example.com") {
+				{ p.URLOr("contact_email", "hello@example.com") }
+			}
+		</p>
+	</section>
+}
+
+// AboutPage renders the about page with layout.
+templ AboutPage(p cms.PageData) {
+	@Layout(p, aboutContent(p))
+}

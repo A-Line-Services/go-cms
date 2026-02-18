@@ -1,0 +1,41 @@
+package blog
+
+import (
+	cms "go.a-line.be/cms"
+	c "go.a-line.be/cms/components"
+	"go.a-line.be/cms/examples/basic/pages"
+)
+
+templ indexContent(p cms.PageData) {
+	@c.Meta("blog-index", "Blog Index")
+
+	<h1>
+		@c.Text(p, "title", "Page Title", "Blog")
+	</h1>
+
+	@c.RichText(p, "intro", "Introduction", "<p>Thoughts, tutorials, and updates from the team.</p>")
+
+	<div class="post-grid">
+		for _, post := range p.Listing("blog") {
+			<a href={ templ.SafeURL(post.Path) } class="post-card">
+				if post.Image("cover").URL != "" {
+					<img
+						class="post-cover"
+						src={ post.Image("cover").Src(cms.Width(400)) }
+						alt={ post.Image("cover").Alt }
+						loading="lazy"
+					/>
+				}
+				<div class="post-body">
+					<span class="badge">{ post.TextOr("category", "General") }</span>
+					<h3>{ post.TextOr("title", "Untitled") }</h3>
+				</div>
+			</a>
+		}
+	</div>
+}
+
+// IndexPage renders the blog listing page with layout.
+templ IndexPage(p cms.PageData) {
+	@pages.Layout(p, indexContent(p))
+}

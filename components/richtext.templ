@@ -1,0 +1,19 @@
+package components
+
+import cms "go.a-line.be/cms"
+
+// RichText renders a CMS rich text field as a <div> with raw HTML content.
+// The fallback HTML appears when CMS has no content, and is extracted
+// by the CMS sync crawler as the default value.
+templ RichText(p cms.PageData, key, label, fallback string) {
+	<div data-cms-field={ key } data-cms-type="rich_text" data-cms-label={ label }>
+		@templ.Raw(string(p.RichTextOr(key, fallback)))
+	</div>
+}
+
+// RichTextEntry renders a CMS rich text field for a subcollection entry.
+templ RichTextEntry(e cms.EntryData, key, label, fallback string) {
+	<div data-cms-field={ key } data-cms-type="rich_text" data-cms-label={ label }>
+		@templ.Raw(string(e.RichTextOr(key, fallback)))
+	</div>
+}

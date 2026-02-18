@@ -1,0 +1,30 @@
+package blog
+
+import (
+	cms "go.a-line.be/cms"
+	c "go.a-line.be/cms/components"
+	"go.a-line.be/cms/examples/basic/pages"
+)
+
+templ entryContent(p cms.PageData) {
+	@c.CollectionMeta("blog-post", "Blog Post", "blog", "Blog")
+	<article>
+		<h1>
+			@c.TextRequired(p, "title", "Post Title", "Untitled Post")
+		</h1>
+		<div style="margin: 1rem 0;">
+			<span class="badge">
+				@c.Text(p, "category", "Category", "General")
+			</span>
+		</div>
+		@c.Image(p, "cover", "Cover Image", cms.ImageValue{
+			Alt: "Blog post cover image",
+		})
+		@c.RichText(p, "content", "Post Content", "<p>Start writing your blog post here...</p>")
+	</article>
+}
+
+// EntryPage renders a single blog post with layout.
+templ EntryPage(p cms.PageData) {
+	@pages.Layout(p, entryContent(p))
+}

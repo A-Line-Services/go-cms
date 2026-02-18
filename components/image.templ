@@ -1,0 +1,221 @@
+package components
+
+import (
+	"fmt"
+	cms "go.a-line.be/cms"
+)
+
+// Default responsive widths for srcset generation.
+var defaultWidths = []int{400, 800, 1200, 1600}
+
+// Once handles — CSS and JS injected once per page.
+var imageStylesOnce = templ.NewOnceHandle()
+var imageScriptOnce = templ.NewOnceHandle()
+
+// lqipBgStyle returns an inline CSS background for the LQIP placeholder.
+// The 32px image is naturally blurry when scaled up by the browser.
+func lqipBgStyle(lqip string) string {
+	if lqip == "" {
+		return ""
+	}
+	return "background-size:cover;background-position:center;background-repeat:no-repeat;background-image:url('" + lqip + "')"
+}
+
+// Image renders a CMS image field as a <picture> with:
+//   - Format negotiation via <source> elements (AVIF, WebP when available)
+//   - Real src/srcset for browser preload scanner discovery
+//   - LQIP as CSS background (visible until real image loads)
+//   - Native loading="lazy" (no custom IntersectionObserver)
+//
+// The fallback ImageValue provides default src/alt when CMS has no content,
+// and serves as the default value extracted by the CMS sync crawler.
+templ Image(p cms.PageData, key, label string, fallback cms.ImageValue) {
+	@imageStyles()
+	@imageScript()
+	{{ img := p.ImageOr(key, fallback) }}
+	<picture data-cms-field={ key } data-cms-type="image" data-cms-label={ label }>
+		if img.HasFormat("avif") {
+			<source type="image/avif" srcset={ img.SrcSetFor("avif", defaultWidths...) }/>
+		}
+		if img.HasFormat("webp") {
+			<source type="image/webp" srcset={ img.SrcSetFor("webp", defaultWidths...) }/>
+		}
+		<img
+			src={ img.Src() }
+			if img.SrcSet(defaultWidths...) != "" {
+				srcset={ img.SrcSet(defaultWidths...) }
+			}
+			alt={ img.Alt }
+			loading="lazy"
+			decoding="async"
+			class="cms-img"
+			if lqipBgStyle(img.LQIP()) != "" {
+				style={ templ.SafeCSS(lqipBgStyle(img.LQIP())) }
+			}
+		/>
+	</picture>
+}
+
+// ImageEntry renders a CMS image for a subcollection entry.
+templ ImageEntry(e cms.EntryData, key, label string, fallback cms.ImageValue) {
+	@imageStyles()
+	@imageScript()
+	{{ img := e.ImageOr(key, fallback) }}
+	<picture data-cms-field={ key } data-cms-type="image" data-cms-label={ label }>
+		if img.HasFormat("avif") {
+			<source type="image/avif" srcset={ img.SrcSetFor("avif", defaultWidths...) }/>
+		}
+		if img.HasFormat("webp") {
+			<source type="image/webp" srcset={ img.SrcSetFor("webp", defaultWidths...) }/>
+		}
+		<img
+			src={ img.Src() }
+			if img.SrcSet(defaultWidths...) != "" {
+				srcset={ img.SrcSet(defaultWidths...) }
+			}
+			alt={ img.Alt }
+			loading="lazy"
+			decoding="async"
+			class="cms-img"
+			if lqipBgStyle(img.LQIP()) != "" {
+				style={ templ.SafeCSS(lqipBgStyle(img.LQIP())) }
+			}
+		/>
+	</picture>
+}
+
+// ImageSimple renders a plain <img> without LQIP, srcset, or <picture> —
+// for cases like small icons or logos where the full smart image is overkill.
+templ ImageSimple(p cms.PageData, key, label string, fallback cms.ImageValue) {
+	{{ img := p.ImageOr(key, fallback) }}
+	<img
+		data-cms-field={ key }
+		data-cms-type="image"
+		data-cms-label={ label }
+		src={ img.Src() }
+		alt={ img.Alt }
+		loading="lazy"
+		decoding="async"
+	/>
+}
+
+// ImageLink renders a CMS image_link field — an image wrapped in a link.
+templ ImageLink(p cms.PageData, key, label, urlKey string, fallback cms.ImageValue, fallbackURL string) {
+	@imageStyles()
+	@imageScript()
+	{{ img := p.ImageOr(key, fallback) }}
+	{{ href := p.URLOr(urlKey, fallbackURL) }}
+	<a
+		data-cms-field={ key }
+		data-cms-type="image_link"
+		data-cms-label={ label }
+		href={ templ.SafeURL(href) }
+	>
+		<picture>
+			if img.HasFormat("avif") {
+				<source type="image/avif" srcset={ img.SrcSetFor("avif", defaultWidths...) }/>
+			}
+			if img.HasFormat("webp") {
+				<source type="image/webp" srcset={ img.SrcSetFor("webp", defaultWidths...) }/>
+			}
+			<img
+				src={ img.Src() }
+				if img.SrcSet(defaultWidths...) != "" {
+					srcset={ img.SrcSet(defaultWidths...) }
+				}
+				alt={ img.Alt }
+				loading="lazy"
+				decoding="async"
+				class="cms-img"
+				if lqipBgStyle(img.LQIP()) != "" {
+					style={ templ.SafeCSS(lqipBgStyle(img.LQIP())) }
+				}
+			/>
+		</picture>
+	</a>
+}
+
+// ImageSized renders an image with a specific max display width, generating
+// a srcset with widths up to 2x the display size plus a sizes attribute.
+templ ImageSized(p cms.PageData, key, label string, displayWidth int, fallback cms.ImageValue) {
+	@imageStyles()
+	@imageScript()
+	{{ img := p.ImageOr(key, fallback) }}
+	{{ widths := sizesForDisplay(displayWidth) }}
+	<picture data-cms-field={ key } data-cms-type="image" data-cms-label={ label }>
+		if img.HasFormat("avif") {
+			<source type="image/avif" srcset={ img.SrcSetFor("avif", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
+		}
+		if img.HasFormat("webp") {
+			<source type="image/webp" srcset={ img.SrcSetFor("webp", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
+		}
+		<img
+			src={ img.Src(cms.Width(displayWidth)) }
+			if img.SrcSet(widths...) != "" {
+				srcset={ img.SrcSet(widths...) }
+			}
+			sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }
+			alt={ img.Alt }
+			loading="lazy"
+			decoding="async"
+			class="cms-img"
+			if lqipBgStyle(img.LQIP()) != "" {
+				style={ templ.SafeCSS(lqipBgStyle(img.LQIP())) }
+			}
+		/>
+	</picture>
+}
+
+// sizesForDisplay returns widths at 0.5x, 1x, 1.5x, 2x of the display width.
+func sizesForDisplay(displayWidth int) []int {
+	half := displayWidth / 2
+	if half < 100 {
+		half = 100
+	}
+	return []int{half, displayWidth, displayWidth + half, displayWidth * 2}
+}
+
+// imageStyles injects the CSS for LQIP background cleanup (once per page).
+templ imageStyles() {
+	@imageStylesOnce.Once() {
+		<style>
+			.cms-img {
+				/* Ensure image covers the background placeholder */
+				object-fit: cover;
+			}
+		</style>
+	}
+}
+
+// imageScript injects the JS that clears LQIP backgrounds on load (once per page).
+// Replaces the old IntersectionObserver approach — native loading="lazy"
+// handles deferred loading, so we only need to clean up backgrounds.
+templ imageScript() {
+	@imageScriptOnce.Once() {
+		<script>
+			(function() {
+				function onLoaded(img) {
+					img.style.backgroundImage = 'none';
+				}
+				function setup(img) {
+					if (img.complete && img.naturalWidth > 0) {
+						onLoaded(img);
+					} else {
+						img.addEventListener('load', function() { onLoaded(img); });
+					}
+				}
+				document.querySelectorAll('.cms-img').forEach(setup);
+				// Watch for dynamically added images (e.g. subcollection updates in editor).
+				new MutationObserver(function(mutations) {
+					mutations.forEach(function(m) {
+						m.addedNodes.forEach(function(n) {
+							if (n.nodeType !== 1) return;
+							if (n.classList && n.classList.contains('cms-img')) setup(n);
+							if (n.querySelectorAll) n.querySelectorAll('.cms-img').forEach(setup);
+						});
+					});
+				}).observe(document.body, { childList: true, subtree: true });
+			})();
+		</script>
+	}
+}

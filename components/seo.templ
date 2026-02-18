@@ -1,0 +1,18 @@
+package components
+
+import cms "go.a-line.be/cms"
+
+// SEOHead renders SEO meta tags in the <head> from CMS data.
+templ SEOHead(p cms.PageData) {
+	if p.SEO().MetaTitle != "" {
+		<title>{ p.SEO().MetaTitle }</title>
+		<meta property="og:title" content={ p.SEO().MetaTitle }/>
+	}
+	if p.SEO().MetaDescription != "" {
+		<meta name="description" content={ p.SEO().MetaDescription }/>
+		<meta property="og:description" content={ p.SEO().MetaDescription }/>
+	}
+	if p.SEO().OGImageURL != "" {
+		<meta property="og:image" content={ p.SEO().OGImageURL }/>
+	}
+}

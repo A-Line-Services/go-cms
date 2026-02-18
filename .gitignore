@@ -1,0 +1,12 @@
+# Generated templ Go files
+*_templ.go
+
+# Generated route registrations
+routes_gen.go
+
+# Build output
+dist/
+.dev-dist/
+
+# Environment
+.env

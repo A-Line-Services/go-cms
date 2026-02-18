@@ -1,0 +1,33 @@
+package components
+
+import cms "go.a-line.be/cms"
+
+// Text renders a CMS text field as a <span>.
+// The fallback value appears in the HTML when CMS has no content,
+// and is extracted by the CMS sync crawler as the default value.
+templ Text(p cms.PageData, key, label, fallback string) {
+	<span data-cms-field={ key } data-cms-type="text" data-cms-label={ label }>
+		{ p.TextOr(key, fallback) }
+	</span>
+}
+
+// TextBlock renders a CMS text field as a block-level <div>.
+templ TextBlock(p cms.PageData, key, label, fallback string) {
+	<div data-cms-field={ key } data-cms-type="text" data-cms-label={ label }>
+		{ p.TextOr(key, fallback) }
+	</div>
+}
+
+// TextRequired renders a required CMS text field.
+templ TextRequired(p cms.PageData, key, label, fallback string) {
+	<span data-cms-field={ key } data-cms-type="text" data-cms-label={ label } data-cms-required>
+		{ p.TextOr(key, fallback) }
+	</span>
+}
+
+// TextEntry renders a CMS text field for a subcollection entry.
+templ TextEntry(e cms.EntryData, key, label, fallback string) {
+	<span data-cms-field={ key } data-cms-type="text" data-cms-label={ label }>
+		{ e.TextOr(key, fallback) }
+	</span>
+}

@@ -1,0 +1,36 @@
+package components
+
+import (
+	"fmt"
+	cms "go.a-line.be/cms"
+)
+
+// Number renders a CMS number field as a <span>.
+// The fallback value appears when CMS has no content.
+templ Number(p cms.PageData, key, label string, fallback float64) {
+	<span data-cms-field={ key } data-cms-type="number" data-cms-label={ label }>
+		{ fmt.Sprintf("%g", p.NumberOr(key, fallback)) }
+	</span>
+}
+
+// Currency renders a CMS currency field as a <span>.
+// The fallback value appears when CMS has no content.
+templ Currency(p cms.PageData, key, label string, fallback float64) {
+	<span data-cms-field={ key } data-cms-type="currency" data-cms-label={ label }>
+		{ fmt.Sprintf("%.2f", p.NumberOr(key, fallback)) }
+	</span>
+}
+
+// NumberEntry renders a CMS number field for a subcollection entry.
+templ NumberEntry(e cms.EntryData, key, label string, fallback float64) {
+	<span data-cms-field={ key } data-cms-type="number" data-cms-label={ label }>
+		{ fmt.Sprintf("%g", e.NumberOr(key, fallback)) }
+	</span>
+}
+
+// CurrencyEntry renders a CMS currency field for a subcollection entry.
+templ CurrencyEntry(e cms.EntryData, key, label string, fallback float64) {
+	<span data-cms-field={ key } data-cms-type="currency" data-cms-label={ label }>
+		{ fmt.Sprintf("%.2f", e.NumberOr(key, fallback)) }
+	</span>
+}
