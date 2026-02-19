@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -124,6 +125,12 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		if err := a.writePage(opts, m, page); err != nil {
 			return err
 		}
+	}
+
+	// Write template files for CMS preview (rendered with empty data,
+	// preserving data-cms-* attributes and SubcollectionOr fallback entries).
+	if err := a.writeTemplateFiles(opts.OutDir); err != nil {
+		return err
 	}
 
 	// Write sync payload if requested.
@@ -273,6 +280,11 @@ func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOption
 func (a *App) writePage(opts BuildOptions, m *minify.M, page PageData) error {
 	output := a.renderPage(page)
 
+	// Strip CMS attributes from production output — the data-cms-* attributes
+	// and <meta name="cms-*"> tags are only needed in .template.html files
+	// for CMS preview and sync, not in the HTML served to end users.
+	output = stripCMSAttributes(output)
+
 	if m != nil {
 		minified, err := m.String("text/html", output)
 		if err == nil {
@@ -311,6 +323,102 @@ func pathSlug(path string) string {
 	}
 	parts := strings.Split(trimmed, "/")
 	return parts[len(parts)-1]
+}
+
+// ---------------------------------------------------------------------------
+// Template files (for CMS preview and sync)
+// ---------------------------------------------------------------------------
+
+// pathToTemplateFile converts a URL path to a template filesystem path.
+// "/" → "{outDir}/index.template.html"
+// "/about" → "{outDir}/about/index.template.html"
+func pathToTemplateFile(outDir, urlPath string) string {
+	trimmed := strings.Trim(urlPath, "/")
+	if trimmed == "" {
+		return filepath.Join(outDir, "index.template.html")
+	}
+	return filepath.Join(outDir, trimmed, "index.template.html")
+}
+
+// writeTemplateFiles renders each page with empty data (preserving all
+// data-cms-* attributes and SubcollectionOr fallback entries) and writes
+// the result as .template.html alongside the production files.
+//
+// These template files are used by the CMS for:
+//   - Live preview (the bridge script discovers fields from data-cms-* attrs)
+//   - Schema sync (inline HTML in the sync payload)
+//
+// Production HTML is kept clean — no CMS attributes.
+func (a *App) writeTemplateFiles(outDir string) error {
+	// Fixed pages.
+	for _, p := range a.pages {
+		data := NewPageData(p.path, pathSlug(p.path), a.config.Locale, nil, nil, nil)
+		html := a.renderPage(data)
+		if html == "" {
+			continue
+		}
+		outPath := pathToTemplateFile(outDir, p.path)
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			return fmt.Errorf("cms: mkdir %s: %w", filepath.Dir(outPath), err)
+		}
+		if err := os.WriteFile(outPath, []byte(html), 0o644); err != nil {
+			return fmt.Errorf("cms: write template %s: %w", outPath, err)
+		}
+	}
+
+	// Collection listing pages.
+	for _, c := range a.collections {
+		data := NewPageData(c.basePath, pathSlug(c.basePath), a.config.Locale, nil, nil, nil)
+		html := a.renderPage(data)
+		if html == "" {
+			continue
+		}
+		outPath := pathToTemplateFile(outDir, c.basePath)
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			return fmt.Errorf("cms: mkdir %s: %w", filepath.Dir(outPath), err)
+		}
+		if err := os.WriteFile(outPath, []byte(html), 0o644); err != nil {
+			return fmt.Errorf("cms: write template %s: %w", outPath, err)
+		}
+	}
+
+	// Collection entry templates (e.g. /blog/_template).
+	for _, c := range a.collections {
+		data := NewPageData(c.templateURL, pathSlug(c.templateURL), a.config.Locale, nil, nil, nil)
+		html := a.renderPage(data)
+		if html == "" {
+			continue
+		}
+		outPath := pathToTemplateFile(outDir, c.templateURL)
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			return fmt.Errorf("cms: mkdir %s: %w", filepath.Dir(outPath), err)
+		}
+		if err := os.WriteFile(outPath, []byte(html), 0o644); err != nil {
+			return fmt.Errorf("cms: write template %s: %w", outPath, err)
+		}
+	}
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// CMS attribute stripping
+// ---------------------------------------------------------------------------
+
+// Patterns for removing CMS-specific attributes from production HTML.
+var (
+	// data-cms-field="value", data-cms-type="text", data-cms-entry (boolean), etc.
+	cmsAttrRe = regexp.MustCompile(`\s+data-cms-[\w-]+(?:="[^"]*")?`)
+	// <meta name="cms-template" content="homepage"/>
+	cmsMetaRe = regexp.MustCompile(`\s*<meta\s+name="cms-[^"]*"\s+content="[^"]*"\s*/?>`)
+)
+
+// stripCMSAttributes removes all data-cms-* attributes and <meta name="cms-*">
+// tags from HTML, producing clean output for production serving.
+func stripCMSAttributes(html string) string {
+	html = cmsMetaRe.ReplaceAllString(html, "")
+	html = cmsAttrRe.ReplaceAllString(html, "")
+	return html
 }
 
 // ---------------------------------------------------------------------------

@@ -467,14 +467,16 @@ func TestPageData_SubcollectionOr_ReturnsOneEmpty_WhenMissing(t *testing.T) {
 	}
 }
 
-func TestPageData_SubcollectionOr_ReturnsOneEmpty_WhenEmptySlice(t *testing.T) {
+func TestPageData_SubcollectionOr_ReturnsEmpty_WhenProductionHasZeroEntries(t *testing.T) {
+	// Non-nil subcollections map (= production/CMS data exists) with
+	// zero entries should return empty — no phantom fallback entry.
 	p := NewPageData("/", "home", "en", nil, map[string][]EntryData{
 		"team": {},
 	}, nil)
 
 	got := p.SubcollectionOr("team")
-	if len(got) != 1 {
-		t.Fatalf("SubcollectionOr('team') len = %d, want 1", len(got))
+	if len(got) != 0 {
+		t.Fatalf("SubcollectionOr('team') len = %d, want 0 (production, no entries)", len(got))
 	}
 }
 

@@ -799,6 +799,270 @@ func TestMediaDownloader_Processor_FormatVariants_GracefulOnError(t *testing.T) 
 	}
 }
 
+// ---------------------------------------------------------------------------
+// CMS attribute stripping tests
+// ---------------------------------------------------------------------------
+
+func TestStripCMSAttributes_RemovesDataCmsAttrs(t *testing.T) {
+	input := `<div data-cms-field="title" data-cms-type="text">Hello</div>`
+	got := stripCMSAttributes(input)
+	want := `<div>Hello</div>`
+	if got != want {
+		t.Errorf("stripCMSAttributes =\n  %q\nwant:\n  %q", got, want)
+	}
+}
+
+func TestStripCMSAttributes_RemovesBooleanAttrs(t *testing.T) {
+	input := `<div data-cms-entry data-cms-subcollection="partners">content</div>`
+	got := stripCMSAttributes(input)
+	want := `<div>content</div>`
+	if got != want {
+		t.Errorf("stripCMSAttributes =\n  %q\nwant:\n  %q", got, want)
+	}
+}
+
+func TestStripCMSAttributes_RemovesCmsMetaTags(t *testing.T) {
+	input := `<head>
+  <meta name="cms-template" content="homepage"/>
+  <title>Test</title>
+</head>`
+	got := stripCMSAttributes(input)
+	if strings.Contains(got, "cms-template") {
+		t.Errorf("expected cms meta tag removed, got: %q", got)
+	}
+	if !strings.Contains(got, "<title>Test</title>") {
+		t.Errorf("expected title preserved, got: %q", got)
+	}
+}
+
+func TestStripCMSAttributes_PreservesNonCmsAttrs(t *testing.T) {
+	input := `<div class="hero" id="main" data-cms-field="title" data-testid="hero">Hello</div>`
+	got := stripCMSAttributes(input)
+	if !strings.Contains(got, `class="hero"`) {
+		t.Errorf("expected class preserved, got: %q", got)
+	}
+	if !strings.Contains(got, `id="main"`) {
+		t.Errorf("expected id preserved, got: %q", got)
+	}
+	if !strings.Contains(got, `data-testid="hero"`) {
+		t.Errorf("expected data-testid preserved, got: %q", got)
+	}
+	if strings.Contains(got, "data-cms-field") {
+		t.Errorf("expected data-cms-field removed, got: %q", got)
+	}
+}
+
+func TestStripCMSAttributes_MultipleAttrsOnElement(t *testing.T) {
+	input := `<h1 data-cms-field="heading" data-cms-type="text" class="title">Welcome</h1>`
+	got := stripCMSAttributes(input)
+	want := `<h1 class="title">Welcome</h1>`
+	if got != want {
+		t.Errorf("stripCMSAttributes =\n  %q\nwant:\n  %q", got, want)
+	}
+}
+
+func TestStripCMSAttributes_NoOp_WhenNoCmsAttrs(t *testing.T) {
+	input := `<div class="hero"><h1>Hello</h1></div>`
+	got := stripCMSAttributes(input)
+	if got != input {
+		t.Errorf("expected no changes, got: %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// pathToTemplateFile tests
+// ---------------------------------------------------------------------------
+
+func TestPathToTemplateFile_Root(t *testing.T) {
+	got := pathToTemplateFile("/out", "/")
+	want := filepath.Join("/out", "index.template.html")
+	if got != want {
+		t.Errorf("pathToTemplateFile('/') = %q, want %q", got, want)
+	}
+}
+
+func TestPathToTemplateFile_Nested(t *testing.T) {
+	got := pathToTemplateFile("/out", "/about")
+	want := filepath.Join("/out", "about", "index.template.html")
+	if got != want {
+		t.Errorf("pathToTemplateFile('/about') = %q, want %q", got, want)
+	}
+}
+
+func TestPathToTemplateFile_DeepNested(t *testing.T) {
+	got := pathToTemplateFile("/out", "/blog/_template")
+	want := filepath.Join("/out", "blog", "_template", "index.template.html")
+	if got != want {
+		t.Errorf("pathToTemplateFile('/blog/_template') = %q, want %q", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// writeTemplateFiles tests
+// ---------------------------------------------------------------------------
+
+func TestBuild_WritesTemplateFiles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string {
+		return `<h1 data-cms-field="title" data-cms-type="text">` + p.Text("title") + `</h1>`
+	}))
+	app.Page("/about", testRender(func(p PageData) string {
+		return `<h1 data-cms-field="heading" data-cms-type="text">` + p.Text("heading") + `</h1>`
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Template files should exist alongside production files.
+	tmpl, err := os.ReadFile(filepath.Join(outDir, "index.template.html"))
+	if err != nil {
+		t.Fatalf("index.template.html not found: %v", err)
+	}
+	// Template files should preserve data-cms-* attributes.
+	if !strings.Contains(string(tmpl), "data-cms-field") {
+		t.Errorf("template file should contain data-cms-field, got: %q", string(tmpl))
+	}
+
+	tmpl2, err := os.ReadFile(filepath.Join(outDir, "about", "index.template.html"))
+	if err != nil {
+		t.Fatalf("about/index.template.html not found: %v", err)
+	}
+	if !strings.Contains(string(tmpl2), "data-cms-field") {
+		t.Errorf("about template should contain data-cms-field, got: %q", string(tmpl2))
+	}
+}
+
+func TestBuild_ProductionHTML_NoCMSAttributes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{
+				{ID: "p1", Path: "/", Slug: "home", TemplateID: "t1"},
+			})
+		case r.URL.Path == "/api/v1/test/pages/" || r.URL.Path == "/api/v1/test/pages//":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/", Slug: "home",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: "en", Value: jsonVal("Hello World")},
+				},
+			})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string {
+		return `<html><head><meta name="cms-template" content="homepage"/></head><body><h1 data-cms-field="title" data-cms-type="text">` + p.Text("title") + `</h1></body></html>`
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Production HTML should be clean.
+	prod, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prodHTML := string(prod)
+
+	if strings.Contains(prodHTML, "data-cms-") {
+		t.Errorf("production HTML should not contain data-cms-* attributes: %q", prodHTML)
+	}
+	if strings.Contains(prodHTML, `cms-template`) {
+		t.Errorf("production HTML should not contain cms meta tags: %q", prodHTML)
+	}
+	if !strings.Contains(prodHTML, "Hello World") {
+		t.Errorf("production HTML should contain rendered content: %q", prodHTML)
+	}
+
+	// Template file should preserve CMS attributes.
+	tmpl, err := os.ReadFile(filepath.Join(outDir, "index.template.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmplHTML := string(tmpl)
+
+	if !strings.Contains(tmplHTML, "data-cms-field") {
+		t.Errorf("template HTML should contain data-cms-field: %q", tmplHTML)
+	}
+	if !strings.Contains(tmplHTML, "data-cms-type") {
+		t.Errorf("template HTML should contain data-cms-type: %q", tmplHTML)
+	}
+}
+
+func TestBuild_CollectionTemplateFiles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Collection("/blog", "Blog",
+		testRender(func(p PageData) string {
+			return `<div data-cms-field="title" data-cms-type="text">listing</div>`
+		}),
+		testRender(func(p PageData) string {
+			return `<div data-cms-field="title" data-cms-type="text">entry</div>`
+		}),
+	)
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Collection listing template file.
+	listTmpl, err := os.ReadFile(filepath.Join(outDir, "blog", "index.template.html"))
+	if err != nil {
+		t.Fatalf("blog/index.template.html not found: %v", err)
+	}
+	if !strings.Contains(string(listTmpl), "data-cms-field") {
+		t.Errorf("blog listing template should contain data-cms-field: %q", string(listTmpl))
+	}
+
+	// Collection _template template file.
+	entryTmpl, err := os.ReadFile(filepath.Join(outDir, "blog", "_template", "index.template.html"))
+	if err != nil {
+		t.Fatalf("blog/_template/index.template.html not found: %v", err)
+	}
+	if !strings.Contains(string(entryTmpl), "data-cms-field") {
+		t.Errorf("blog entry template should contain data-cms-field: %q", string(entryTmpl))
+	}
+
+	// Production listing HTML should be clean.
+	listProd, err := os.ReadFile(filepath.Join(outDir, "blog", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(listProd), "data-cms-") {
+		t.Errorf("production listing HTML should not contain data-cms-*: %q", string(listProd))
+	}
+}
+
 func TestBuild_DownloadMedia_False_KeepsRemoteURLs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

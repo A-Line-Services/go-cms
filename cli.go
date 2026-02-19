@@ -188,6 +188,16 @@ func (a *App) runDev() {
 		DownloadMedia: true,
 	}
 
+	// Sync templates to the CMS so field definitions stay up-to-date.
+	if a.config.APIKey != "" {
+		fmt.Println("syncing templates...")
+		if err := a.PostSync(context.Background(), ""); err != nil {
+			fmt.Fprintf(os.Stderr, "sync failed (continuing): %v\n", err)
+		} else {
+			fmt.Println("sync complete")
+		}
+	}
+
 	// Initial build.
 	fmt.Println("building...")
 	if err := a.Build(context.Background(), opts); err != nil {
@@ -203,21 +213,8 @@ func (a *App) runDev() {
 	// Rebuild endpoint — POST /rebuild triggers a full rebuild.
 	mux.HandleFunc("/rebuild", ds.handleRebuild)
 
-	// Serve static files with clean URL support.
-	fileServer := http.FileServer(http.Dir(*outDir))
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		filePath := *outDir + r.URL.Path
-		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
-			fileServer.ServeHTTP(w, r)
-			return
-		}
-		indexPath := filePath + "/index.html"
-		if _, err := os.Stat(indexPath); err == nil {
-			http.ServeFile(w, r, indexPath)
-			return
-		}
-		fileServer.ServeHTTP(w, r)
-	})
+	// Serve static files with clean URL and CMS preview support.
+	mux.Handle("/", devFileHandler(*outDir))
 
 	addr := ":" + *port
 	fmt.Printf("dev server running at http://localhost%s\n", addr)
@@ -233,6 +230,39 @@ type devServer struct {
 	app  *App
 	opts BuildOptions
 	mu   sync.Mutex
+}
+
+// devFileHandler returns an http.Handler that serves static files from dir
+// with clean-URL support. When the X-CMS-Preview header is "true", it serves
+// .template.html files (which retain data-cms-* attributes for the CMS
+// preview bridge) instead of production index.html files.
+func devFileHandler(dir string) http.Handler {
+	fileServer := http.FileServer(http.Dir(dir))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		isPreview := r.Header.Get("X-CMS-Preview") == "true"
+
+		filePath := dir + r.URL.Path
+		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// For clean URLs, resolve to index.html (or index.template.html for previews).
+		if isPreview {
+			templatePath := filePath + "/index.template.html"
+			if _, err := os.Stat(templatePath); err == nil {
+				http.ServeFile(w, r, templatePath)
+				return
+			}
+		}
+		indexPath := filePath + "/index.html"
+		if _, err := os.Stat(indexPath); err == nil {
+			http.ServeFile(w, r, indexPath)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 func (ds *devServer) handleRebuild(w http.ResponseWriter, r *http.Request) {

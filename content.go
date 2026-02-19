@@ -93,14 +93,13 @@ func (e EntryData) Subcollection(key string) []EntryData {
 	return e.Subcollections[key]
 }
 
-// SubcollectionOr returns nested entries, or a single empty entry if missing.
-// See PageData.SubcollectionOr for rationale.
+// SubcollectionOr returns nested entries, or a single empty entry when there
+// is no CMS data (nil Subcollections map). See PageData.SubcollectionOr.
 func (e EntryData) SubcollectionOr(key string) []EntryData {
-	entries := e.Subcollection(key)
-	if len(entries) > 0 {
-		return entries
+	if e.Subcollections == nil {
+		return []EntryData{emptyEntry()}
 	}
-	return []EntryData{emptyEntry()}
+	return e.Subcollections[key]
 }
 
 // PageData holds resolved CMS content for a single page.
@@ -276,16 +275,20 @@ func (p PageData) Subcollection(key string) []EntryData {
 }
 
 // SubcollectionOr returns entries for the given subcollection key.
-// If the subcollection is empty or missing, returns a single empty entry
-// so that template components always render at least one [data-cms-entry]
-// element. This ensures the CMS sync crawler can discover the field
-// structure and the editor bridge has a template entry to clone.
+//
+// When there is no CMS data at all (subcollections map is nil — template
+// renders and sync payloads), returns a single empty entry so template
+// components always render at least one [data-cms-entry] element. This
+// ensures schema discovery and gives the editor bridge a template to clone.
+//
+// When CMS data exists (subcollections map is non-nil — production builds),
+// returns the actual entries, which may be empty. This keeps production
+// HTML clean: no phantom entries with blank fields.
 func (p PageData) SubcollectionOr(key string) []EntryData {
-	entries := p.Subcollection(key)
-	if len(entries) > 0 {
-		return entries
+	if p.subcollections == nil {
+		return []EntryData{emptyEntry()}
 	}
-	return []EntryData{emptyEntry()}
+	return p.subcollections[key]
 }
 
 // Listing returns collection entries attached to this page during build.
@@ -319,12 +322,15 @@ func setEntryImageProcessor(subcollections map[string][]EntryData, proc imagePro
 	}
 }
 
-// emptyEntry returns an EntryData with initialized (but empty) maps.
-// Used by SubcollectionOr to guarantee at least one entry for CMS discovery.
+// emptyEntry returns an EntryData with an empty Fields map and nil
+// Subcollections. The nil Subcollections ensures that nested
+// SubcollectionOr calls also return fallback entries (for schema discovery
+// in template renders). Production entries from the CMS always have
+// non-nil Subcollections (even if empty), so they skip the fallback.
 func emptyEntry() EntryData {
 	return EntryData{
 		Fields:         map[string]any{},
-		Subcollections: map[string][]EntryData{},
+		Subcollections: nil,
 	}
 }
 

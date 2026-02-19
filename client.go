@@ -332,9 +332,9 @@ func (c *Client) resolvePageData(resp apiPageResponse, locale string) PageData {
 }
 
 func resolveSubcollections(scs []apiSubcollection) map[string][]EntryData {
-	if len(scs) == 0 {
-		return nil
-	}
+	// Always return a non-nil map so SubcollectionOr can distinguish
+	// "production data with zero entries" (non-nil map) from "no CMS data"
+	// (nil map, used in template renders for schema discovery).
 	result := make(map[string][]EntryData)
 	for _, sc := range scs {
 		var entries []EntryData

@@ -156,7 +156,7 @@ func (a *App) PostSync(ctx context.Context, filePath string) error {
 		}
 	}
 
-	url := fmt.Sprintf("%s/sites/%s/sync",
+	url := fmt.Sprintf("%s/api/v1/%s/sync",
 		strings.TrimRight(a.config.APIURL, "/"),
 		a.config.SiteSlug,
 	)
