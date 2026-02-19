@@ -22,6 +22,11 @@ type ImageValue struct {
 	// Set during static build so Src/SrcSet/LQIP return local file paths
 	// instead of CMS media URLs. Nil in non-build mode (no-op).
 	resolved map[string]string
+
+	// dl is the media downloader for lazy resolution of URLs not in the
+	// pre-downloaded set (e.g. custom widths from ImageSized). Nil in
+	// non-build mode.
+	dl *mediaDownloader
 }
 
 // CurrencyValue represents a CMS currency field value.

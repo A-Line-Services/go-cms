@@ -24,6 +24,11 @@ type SyncPayload struct {
 type SyncPage struct {
 	Path  string `json:"path"`
 	Title string `json:"title,omitempty"`
+	// HTML is the pre-rendered page HTML for schema discovery.
+	// When provided, the CMS parses this HTML to discover template
+	// metadata, field definitions, and subcollection schemas instead
+	// of crawling the live site.
+	HTML string `json:"html,omitempty"`
 }
 
 // SyncCollection describes a collection for sync.
@@ -32,6 +37,8 @@ type SyncCollection struct {
 	Label       string `json:"label"`
 	TemplateURL string `json:"template_url"`
 	BasePath    string `json:"base_path"`
+	// HTML is the pre-rendered template page HTML for schema discovery.
+	HTML string `json:"html,omitempty"`
 }
 
 // SyncEmailTemplate describes an email template for sync.
@@ -45,31 +52,45 @@ type SyncEmailTemplate struct {
 
 // SyncPayload produces the JSON-serializable sync payload from all
 // registered pages, collections, and email templates.
+//
+// Each page and collection template is rendered with empty PageData so
+// the resulting HTML contains all data-cms-* attributes for schema
+// discovery. SubcollectionOr ensures at least one entry element is
+// present even when no CMS content exists yet, avoiding the
+// chicken-and-egg problem with for-range loops over empty data.
 func (a *App) SyncPayload() SyncPayload {
-	// Fixed pages.
+	// Fixed pages — render with empty data for schema discovery.
 	pages := make([]SyncPage, 0, len(a.pages)+len(a.collections))
 	for _, p := range a.pages {
-		pages = append(pages, SyncPage{Path: p.path, Title: p.title})
+		data := NewPageData(p.path, pathSlug(p.path), a.config.Locale, nil, nil, nil)
+		html := a.renderPage(data)
+		pages = append(pages, SyncPage{Path: p.path, Title: p.title, HTML: html})
 	}
 
-	// Collection listing pages are added to sync pages so the CMS crawls them.
+	// Collection listing pages.
 	for _, c := range a.collections {
+		data := NewPageData(c.basePath, pathSlug(c.basePath), a.config.Locale, nil, nil, nil)
+		html := a.renderPage(data)
 		pages = append(pages, SyncPage{
 			Path:  c.basePath,
 			Title: titleFromPath(c.basePath),
+			HTML:  html,
 		})
 	}
 
-	// Collections.
+	// Collections — render the template page for schema discovery.
 	var collections []SyncCollection
 	if len(a.collections) > 0 {
 		collections = make([]SyncCollection, len(a.collections))
 		for i, c := range a.collections {
+			data := NewPageData(c.templateURL, pathSlug(c.templateURL), a.config.Locale, nil, nil, nil)
+			html := a.renderPage(data)
 			collections[i] = SyncCollection{
 				Key:         c.key,
 				Label:       c.label,
 				TemplateURL: c.templateURL,
 				BasePath:    c.basePath + "/:slug",
+				HTML:        html,
 			}
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -278,5 +279,150 @@ func TestPostSync_ErrorOnHTTPFailure(t *testing.T) {
 	err := app.PostSync(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Inline HTML in sync payload
+// ---------------------------------------------------------------------------
+
+func TestSyncPayload_PageHTML_ContainsRenderedTemplate(t *testing.T) {
+	render := testRender(func(p PageData) string {
+		var b strings.Builder
+		b.WriteString(`<html><head>`)
+		b.WriteString(`<meta name="cms-template" content="homepage">`)
+		b.WriteString(`</head><body>`)
+		b.WriteString(`<div data-cms-subcollection="partners" data-cms-label="Partners">`)
+		for _, entry := range p.SubcollectionOr("partners") {
+			b.WriteString(`<div data-cms-entry>`)
+			b.WriteString(`<span data-cms-field="name" data-cms-type="text" data-cms-label="Name">`)
+			b.WriteString(entry.TextOr("name", "Partner"))
+			b.WriteString(`</span>`)
+			b.WriteString(`</div>`)
+		}
+		b.WriteString(`</div>`)
+		b.WriteString(`</body></html>`)
+		return b.String()
+	})
+
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Page("/", render)
+
+	payload := app.SyncPayload()
+
+	if len(payload.Pages) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(payload.Pages))
+	}
+	page := payload.Pages[0]
+	if page.HTML == "" {
+		t.Fatal("expected non-empty HTML")
+	}
+	if !strings.Contains(page.HTML, `data-cms-subcollection="partners"`) {
+		t.Error("HTML missing subcollection attribute")
+	}
+	if !strings.Contains(page.HTML, `data-cms-entry`) {
+		t.Error("HTML missing entry attribute — SubcollectionOr should render one")
+	}
+	if !strings.Contains(page.HTML, `data-cms-field="name"`) {
+		t.Error("HTML missing field attribute inside entry")
+	}
+}
+
+func TestSyncPayload_CollectionHTML_ContainsRenderedTemplate(t *testing.T) {
+	listing := noop()
+	entry := testRender(func(p PageData) string {
+		var b strings.Builder
+		b.WriteString(`<html><head>`)
+		b.WriteString(`<meta name="cms-template" content="blog-entry">`)
+		b.WriteString(`<meta name="cms-collection" content="blog">`)
+		b.WriteString(`</head><body>`)
+		b.WriteString(`<h1 data-cms-field="title" data-cms-type="text">`)
+		b.WriteString(p.TextOr("title", "Post Title"))
+		b.WriteString(`</h1>`)
+		b.WriteString(`</body></html>`)
+		return b.String()
+	})
+
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Collection("/blog", "Blog Posts", listing, entry)
+
+	payload := app.SyncPayload()
+
+	if len(payload.Collections) != 1 {
+		t.Fatalf("expected 1 collection, got %d", len(payload.Collections))
+	}
+	coll := payload.Collections[0]
+	if coll.HTML == "" {
+		t.Fatal("expected non-empty collection template HTML")
+	}
+	if !strings.Contains(coll.HTML, `data-cms-field="title"`) {
+		t.Error("collection template HTML missing field attribute")
+	}
+}
+
+func TestSyncPayload_PageHTML_OmittedWhenEmpty(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Page("/", noop())
+
+	payload := app.SyncPayload()
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// noop() renders empty string, so html should be omitted from JSON
+	if strings.Contains(string(data), `"html"`) {
+		t.Error("expected html to be omitted when render returns empty string")
+	}
+}
+
+func TestSyncPayload_SubcollectionOr_GuaranteesEntryInHTML(t *testing.T) {
+	// Even with zero CMS data, SubcollectionOr renders one empty entry.
+	// This test verifies the contract that makes inline HTML sync work.
+	render := testRender(func(p PageData) string {
+		var b strings.Builder
+		b.WriteString(`<div data-cms-subcollection="team" data-cms-label="Team">`)
+		for _, entry := range p.SubcollectionOr("team") {
+			b.WriteString(`<div data-cms-entry>`)
+			b.WriteString(`<span data-cms-field="name" data-cms-type="text" data-cms-label="Name">`)
+			b.WriteString(entry.TextOr("name", "Member"))
+			b.WriteString(`</span>`)
+			// Nested subcollection
+			b.WriteString(`<div data-cms-subcollection="skills" data-cms-label="Skills">`)
+			for _, skill := range entry.SubcollectionOr("skills") {
+				b.WriteString(`<div data-cms-entry>`)
+				b.WriteString(`<span data-cms-field="skill" data-cms-type="text" data-cms-label="Skill">`)
+				b.WriteString(skill.TextOr("skill", "Skill"))
+				b.WriteString(`</span>`)
+				b.WriteString(`</div>`)
+			}
+			b.WriteString(`</div>`)
+			b.WriteString(`</div>`)
+		}
+		b.WriteString(`</div>`)
+		return b.String()
+	})
+
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Page("/", render)
+
+	payload := app.SyncPayload()
+	html := payload.Pages[0].HTML
+
+	// Top-level subcollection discovered
+	if !strings.Contains(html, `data-cms-subcollection="team"`) {
+		t.Error("missing top-level subcollection")
+	}
+	// At least one entry rendered
+	if !strings.Contains(html, `data-cms-entry`) {
+		t.Error("missing entry element — SubcollectionOr should guarantee one")
+	}
+	// Nested subcollection discovered inside the entry
+	if !strings.Contains(html, `data-cms-subcollection="skills"`) {
+		t.Error("missing nested subcollection")
+	}
+	// Nested entry's field discovered
+	if !strings.Contains(html, `data-cms-field="skill"`) {
+		t.Error("missing nested field")
 	}
 }

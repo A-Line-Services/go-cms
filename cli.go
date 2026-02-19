@@ -185,7 +185,7 @@ func (a *App) runDev() {
 
 	opts := BuildOptions{
 		OutDir:        *outDir,
-		DownloadMedia: false,
+		DownloadMedia: true,
 	}
 
 	// Initial build.

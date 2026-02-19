@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,7 @@ func (d *mediaDownloader) processor() imageProcessor {
 		}
 
 		img.resolved = resolved
+		img.dl = d // enable lazy downloading for custom widths (e.g. ImageSized)
 		return img
 	}
 }
@@ -179,9 +181,27 @@ func (d *mediaDownloader) downloadBase64(remoteURL string) (string, error) {
 }
 
 // hashFilename returns a short deterministic filename from a URL.
-func hashFilename(url string) string {
-	h := sha256.Sum256([]byte(url))
+// Volatile auth params (sig, exp) are stripped before hashing so the same
+// media file + processing params always produce the same filename, even
+// when signed URLs are refreshed across rebuilds.
+func hashFilename(rawURL string) string {
+	h := sha256.Sum256([]byte(stableURL(rawURL)))
 	return fmt.Sprintf("%x", h[:8])
+}
+
+// stableURL strips volatile auth params (sig, exp) from a URL and returns
+// a normalized string. Processing params (w, h, q, format) are kept.
+// Query keys are sorted by url.Values.Encode for determinism.
+func stableURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	q.Del("sig")
+	q.Del("exp")
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // extensionFromResponse determines the file extension from the HTTP response.

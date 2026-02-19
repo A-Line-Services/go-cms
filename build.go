@@ -69,10 +69,11 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 
 	// Set up media downloader if requested.
 	var imgProc imageProcessor
+	var mediaDL *mediaDownloader
 	if opts.DownloadMedia {
 		mediaDir := filepath.Join(opts.OutDir, "media")
-		dl := newMediaDownloader(mediaDir, "/media")
-		imgProc = dl.processor()
+		mediaDL = newMediaDownloader(mediaDir, "/media")
+		imgProc = mediaDL.processor()
 	}
 
 	// Set up HTML minifier if requested.
@@ -95,7 +96,7 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 	jobs, seen := a.planFetchJobs(allPages)
 
 	// 3. Fetch all page content + SEO concurrently.
-	results := a.fetchAll(ctx, client, jobs, imgProc)
+	results := a.fetchAll(ctx, client, jobs, imgProc, mediaDL)
 
 	// 4. Assemble listings from entry results.
 	listings := make(map[string][]PageData)
@@ -175,7 +176,7 @@ func (a *App) planFetchJobs(allPages []apiPageListItem) ([]fetchJob, map[string]
 }
 
 // fetchAll fetches content + SEO for all jobs concurrently, up to 10 at a time.
-func (a *App) fetchAll(ctx context.Context, client *Client, jobs []fetchJob, imgProc imageProcessor) []fetchResult {
+func (a *App) fetchAll(ctx context.Context, client *Client, jobs []fetchJob, imgProc imageProcessor, dl *mediaDownloader) []fetchResult {
 	results := make([]fetchResult, len(jobs))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 10)
@@ -207,6 +208,13 @@ func (a *App) fetchAll(ctx context.Context, client *Client, jobs []fetchJob, img
 				setEntryImageProcessor(page.subcollections, imgProc)
 			}
 
+			// Download OG image so <meta property="og:image"> uses a local path.
+			if dl != nil && page.seo != nil && page.seo.OGImageURL != "" {
+				if local, err := dl.download(page.seo.OGImageURL); err == nil {
+					page.seo.OGImageURL = local
+				}
+			}
+
 			results[i] = fetchResult{job: job, page: page}
 		}(i, job)
 	}
@@ -217,7 +225,7 @@ func (a *App) fetchAll(ctx context.Context, client *Client, jobs []fetchJob, img
 
 // buildOnePage fetches content + SEO for a single path, renders it, and writes
 // the HTML file. Falls back to empty PageData if the API is unavailable.
-func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOptions, pagePath string, imgProc imageProcessor, m *minify.M, listings map[string][]PageData) error {
+func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOptions, pagePath string, imgProc imageProcessor, dl *mediaDownloader, m *minify.M, listings map[string][]PageData) error {
 	page, err := client.GetPage(ctx, pagePath)
 	if err != nil {
 		if !strings.Contains(pagePath, "_template") {
@@ -238,6 +246,13 @@ func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOption
 	if imgProc != nil {
 		page.imgProc = imgProc
 		setEntryImageProcessor(page.subcollections, imgProc)
+	}
+
+	// Download OG image so <meta property="og:image"> uses a local path.
+	if dl != nil && page.seo != nil && page.seo.OGImageURL != "" {
+		if local, err := dl.download(page.seo.OGImageURL); err == nil {
+			page.seo.OGImageURL = local
+		}
 	}
 
 	// Attach collection listings so index pages can iterate entries.

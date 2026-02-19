@@ -8,23 +8,15 @@ import (
 
 templ indexContent(p cms.PageData) {
 	@c.Meta("blog-index", "Blog Index")
-
 	<h1>
 		@c.Text(p, "title", "Page Title", "Blog")
 	</h1>
-
 	@c.RichText(p, "intro", "Introduction", "<p>Thoughts, tutorials, and updates from the team.</p>")
-
 	<div class="post-grid">
 		for _, post := range p.Listing("blog") {
 			<a href={ templ.SafeURL(post.Path) } class="post-card">
 				if post.Image("cover").URL != "" {
-					<img
-						class="post-cover"
-						src={ post.Image("cover").Src(cms.Width(400)) }
-						alt={ post.Image("cover").Alt }
-						loading="lazy"
-					/>
+					@c.ImageCard(post.ImageOr("cover", cms.ImageValue{Alt: "Blog post cover"}))
 				}
 				<div class="post-body">
 					<span class="badge">{ post.TextOr("category", "General") }</span>

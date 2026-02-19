@@ -9,6 +9,8 @@ import (
 // Src returns the image URL with optional processing parameters appended
 // as query params. If no options are given, returns the raw URL.
 // During static builds, returns the pre-downloaded local path if available.
+// If the URL wasn't pre-downloaded but a downloader is attached (e.g. custom
+// widths from ImageSized), it lazily downloads the variant.
 func (i ImageValue) Src(opts ...MediaOption) string {
 	if i.URL == "" {
 		return ""
@@ -17,6 +19,13 @@ func (i ImageValue) Src(opts ...MediaOption) string {
 	if i.resolved != nil {
 		if local, ok := i.resolved[url]; ok {
 			return local
+		}
+		// Lazy download: variant wasn't pre-downloaded (custom width).
+		if i.dl != nil {
+			if local, err := i.dl.download(url); err == nil {
+				i.resolved[url] = local
+				return local
+			}
 		}
 	}
 	return url
@@ -42,6 +51,11 @@ func (i ImageValue) SrcSet(widths ...int) string {
 		if i.resolved != nil {
 			if l, ok := i.resolved[remote]; ok {
 				local = l
+			} else if i.dl != nil {
+				if l, err := i.dl.download(remote); err == nil {
+					i.resolved[remote] = l
+					local = l
+				}
 			}
 		}
 		parts = append(parts, local+" "+strconv.Itoa(w)+"w")
@@ -69,6 +83,11 @@ func (i ImageValue) SrcSetFor(format string, widths ...int) string {
 		if i.resolved != nil {
 			if l, ok := i.resolved[remote]; ok {
 				local = l
+			} else if i.dl != nil {
+				if l, err := i.dl.download(remote); err == nil {
+					i.resolved[remote] = l
+					local = l
+				}
 			}
 		}
 		parts = append(parts, local+" "+strconv.Itoa(w)+"w")

@@ -152,6 +152,44 @@ func TestMediaDownloader_HashFilename_Deterministic(t *testing.T) {
 	}
 }
 
+func TestHashFilename_IgnoresSignatureParams(t *testing.T) {
+	// Same image with different sig/exp should produce the same hash.
+	a := hashFilename("https://api.test/media-file/site/media?sig=AAA&exp=1000&w=400")
+	b := hashFilename("https://api.test/media-file/site/media?sig=BBB&exp=2000&w=400")
+	if a != b {
+		t.Errorf("same image with different sig/exp should hash equally: %q vs %q", a, b)
+	}
+
+	// Different processing params should produce different hashes.
+	c := hashFilename("https://api.test/media-file/site/media?sig=AAA&exp=1000&w=800")
+	if a == c {
+		t.Errorf("different widths should produce different hashes")
+	}
+}
+
+func TestStableURL_StripsVolatileParams(t *testing.T) {
+	got := stableURL("https://api.test/media-file/s/m?sig=ABC&exp=1000&w=400&format=webp")
+	if strings.Contains(got, "sig=") {
+		t.Errorf("stableURL should strip sig: %q", got)
+	}
+	if strings.Contains(got, "exp=") {
+		t.Errorf("stableURL should strip exp: %q", got)
+	}
+	if !strings.Contains(got, "w=400") {
+		t.Errorf("stableURL should keep w: %q", got)
+	}
+	if !strings.Contains(got, "format=webp") {
+		t.Errorf("stableURL should keep format: %q", got)
+	}
+}
+
+func TestStableURL_NoQueryParams(t *testing.T) {
+	got := stableURL("https://cdn.test/image.jpg")
+	if got != "https://cdn.test/image.jpg" {
+		t.Errorf("stableURL should not alter URL without params: %q", got)
+	}
+}
+
 func TestMediaDownloader_Download_404_ReturnsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
