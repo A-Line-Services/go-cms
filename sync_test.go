@@ -60,8 +60,8 @@ func TestSyncPayload_Collections(t *testing.T) {
 	if c.TemplateURL != "/blog/_template" {
 		t.Errorf("TemplateURL = %q, want /blog/_template", c.TemplateURL)
 	}
-	if c.BasePath != "/blog/:slug" {
-		t.Errorf("BasePath = %q, want /blog/:slug", c.BasePath)
+	if c.BasePath != "/blog/:blog" {
+		t.Errorf("BasePath = %q, want /blog/:blog", c.BasePath)
 	}
 }
 

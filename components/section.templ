@@ -16,6 +16,14 @@ templ Section(key, label string) {
 	</div>
 }
 
+// SectionCollapsed is like Section but the group starts collapsed in the
+// editor sidebar. Use this for sections that editors rarely need to touch.
+templ SectionCollapsed(key, label string) {
+	<div data-cms-section={ key } data-cms-label={ label } data-cms-collapsed>
+		{ children... }
+	</div>
+}
+
 // SharedSection wraps child fields in a shared (site-level) section.
 // Content edited in a shared section on any page is immediately visible
 // on all pages that contain the same section key.
@@ -30,6 +38,14 @@ templ Section(key, label string) {
 //	</header>
 templ SharedSection(key, label string) {
 	<div data-cms-section={ key } data-cms-label={ label } data-cms-shared>
+		{ children... }
+	</div>
+}
+
+// SharedSectionCollapsed is like SharedSection but the group starts
+// collapsed in the editor sidebar.
+templ SharedSectionCollapsed(key, label string) {
+	<div data-cms-section={ key } data-cms-label={ label } data-cms-shared data-cms-collapsed>
 		{ children... }
 	</div>
 }

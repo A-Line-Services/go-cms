@@ -89,7 +89,7 @@ func (a *App) SyncPayload() SyncPayload {
 				Key:         c.key,
 				Label:       c.label,
 				TemplateURL: c.templateURL,
-				BasePath:    c.basePath + "/:slug",
+				BasePath:    c.basePath + "/:" + c.key,
 				HTML:        html,
 			}
 		}
