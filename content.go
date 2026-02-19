@@ -30,6 +30,16 @@ type ImageValue struct {
 	dl *mediaDownloader
 }
 
+// URLValue represents a CMS URL field value.
+// The CMS stores URL fields as { href, text, title, target } objects,
+// or as plain strings (legacy/sync default).
+type URLValue struct {
+	Href   string
+	Text   string
+	Title  string
+	Target string // "_self" or "_blank"
+}
+
 // CurrencyValue represents a CMS currency field value.
 type CurrencyValue struct {
 	Amount float64
@@ -165,12 +175,28 @@ func (p PageData) ImageOr(key string, fallback ImageValue) ImageValue {
 	return img
 }
 
-// URLOr returns the CMS URL value, or fallback if missing/empty.
+// URLOr returns the CMS URL href, or fallback if missing/empty.
 func (p PageData) URLOr(key, fallback string) string {
-	if v := fieldText(p.fields, key); v != "" {
-		return v
+	if v := fieldURL(p.fields, key); v.Href != "" {
+		return v.Href
 	}
 	return fallback
+}
+
+// URLValueOr returns the full CMS URL value (href, text, title, target),
+// using the provided fallback href and text if the field is missing/empty.
+func (p PageData) URLValueOr(key, fallbackHref, fallbackText string) URLValue {
+	v := fieldURL(p.fields, key)
+	if v.Href == "" {
+		v.Href = fallbackHref
+	}
+	if v.Text == "" {
+		v.Text = fallbackText
+	}
+	if v.Target == "" {
+		v.Target = "_self"
+	}
+	return v
 }
 
 // NumberOr returns the CMS number value, or fallback if the key is missing.
@@ -212,12 +238,28 @@ func (e EntryData) ImageOr(key string, fallback ImageValue) ImageValue {
 	return img
 }
 
-// URLOr returns the CMS URL value, or fallback if missing/empty.
+// URLOr returns the CMS URL href, or fallback if missing/empty.
 func (e EntryData) URLOr(key, fallback string) string {
-	if v := fieldText(e.Fields, key); v != "" {
-		return v
+	if v := fieldURL(e.Fields, key); v.Href != "" {
+		return v.Href
 	}
 	return fallback
+}
+
+// URLValueOr returns the full CMS URL value (href, text, title, target),
+// using the provided fallback href and text if the field is missing/empty.
+func (e EntryData) URLValueOr(key, fallbackHref, fallbackText string) URLValue {
+	v := fieldURL(e.Fields, key)
+	if v.Href == "" {
+		v.Href = fallbackHref
+	}
+	if v.Text == "" {
+		v.Text = fallbackText
+	}
+	if v.Target == "" {
+		v.Target = "_self"
+	}
+	return v
 }
 
 // NumberOr returns the CMS number value, or fallback if the key is missing.
@@ -362,6 +404,32 @@ func fieldText(fields map[string]any, key string) string {
 
 func fieldRichText(fields map[string]any, key string) template.HTML {
 	return template.HTML(fieldText(fields, key))
+}
+
+func fieldURL(fields map[string]any, key string) URLValue {
+	if fields == nil {
+		return URLValue{}
+	}
+	v, ok := fields[key]
+	if !ok || v == nil {
+		return URLValue{}
+	}
+	switch val := v.(type) {
+	case map[string]any:
+		href, _ := val["href"].(string)
+		text, _ := val["text"].(string)
+		title, _ := val["title"].(string)
+		target, _ := val["target"].(string)
+		if target == "" {
+			target = "_self"
+		}
+		return URLValue{Href: href, Text: text, Title: title, Target: target}
+	case string:
+		// Legacy/sync format: plain string is the href.
+		return URLValue{Href: val}
+	default:
+		return URLValue{}
+	}
 }
 
 func fieldImage(fields map[string]any, key string) ImageValue {

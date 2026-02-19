@@ -333,6 +333,83 @@ func TestPageData_URLOr_ReturnsFallback(t *testing.T) {
 	}
 }
 
+func TestPageData_URLOr_ObjectFormat(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{
+		"cta": map[string]any{
+			"href": "https://app.example.com",
+			"text": "Get started",
+		},
+	}, nil, nil)
+	got := p.URLOr("cta", "https://fallback.com")
+	if got != "https://app.example.com" {
+		t.Errorf("URLOr = %q, want https://app.example.com", got)
+	}
+}
+
+func TestPageData_URLValueOr_Fallback(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	got := p.URLValueOr("cta", "https://fallback.com", "Click me")
+	if got.Href != "https://fallback.com" {
+		t.Errorf("URLValueOr.Href = %q", got.Href)
+	}
+	if got.Text != "Click me" {
+		t.Errorf("URLValueOr.Text = %q", got.Text)
+	}
+}
+
+func TestPageData_URLValueOr_ObjectFormat(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{
+		"cta": map[string]any{
+			"href":   "https://app.example.com",
+			"text":   "Get started",
+			"title":  "Sign up",
+			"target": "_blank",
+		},
+	}, nil, nil)
+	got := p.URLValueOr("cta", "https://fallback.com", "Click me")
+	if got.Href != "https://app.example.com" {
+		t.Errorf("Href = %q", got.Href)
+	}
+	if got.Text != "Get started" {
+		t.Errorf("Text = %q", got.Text)
+	}
+	if got.Title != "Sign up" {
+		t.Errorf("Title = %q", got.Title)
+	}
+	if got.Target != "_blank" {
+		t.Errorf("Target = %q", got.Target)
+	}
+}
+
+func TestPageData_URLValueOr_LegacyString(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{
+		"link": "https://legacy.example.com",
+	}, nil, nil)
+	got := p.URLValueOr("link", "https://fallback.com", "Fallback text")
+	if got.Href != "https://legacy.example.com" {
+		t.Errorf("Href = %q", got.Href)
+	}
+	if got.Text != "Fallback text" {
+		t.Errorf("Text = %q, want fallback since legacy string has no text", got.Text)
+	}
+}
+
+func TestEntryData_URLValueOr(t *testing.T) {
+	e := EntryData{Fields: map[string]any{
+		"cta": map[string]any{
+			"href": "https://signup.example.com",
+			"text": "Sign up now",
+		},
+	}}
+	got := e.URLValueOr("cta", "https://fallback.com", "Click")
+	if got.Href != "https://signup.example.com" {
+		t.Errorf("Href = %q", got.Href)
+	}
+	if got.Text != "Sign up now" {
+		t.Errorf("Text = %q", got.Text)
+	}
+}
+
 func TestPageData_NumberOr_ReturnsFallback(t *testing.T) {
 	p := NewPageData("/", "home", "en", nil, nil, nil)
 	got := p.NumberOr("price", 9.99)
