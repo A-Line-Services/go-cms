@@ -1,0 +1,35 @@
+package components
+
+// Section wraps child fields in a collapsible group in the CMS editor.
+// Fields inside this container are grouped under the given label in the
+// editor sidebar.
+//
+// This component renders a <div> wrapper. For semantic HTML elements
+// (header, footer, section, nav), add the attributes directly:
+//
+//	<header data-cms-section="header" data-cms-label="Header">
+//	  @components.Text(p, "nav_cta", "Nav CTA", "Get started")
+//	</header>
+templ Section(key, label string) {
+	<div data-cms-section={ key } data-cms-label={ label }>
+		{ children... }
+	</div>
+}
+
+// SharedSection wraps child fields in a shared (site-level) section.
+// Content edited in a shared section on any page is immediately visible
+// on all pages that contain the same section key.
+//
+// Shared sections are not versioned — edits go live immediately.
+//
+// This component renders a <div> wrapper. For semantic HTML elements,
+// add the attributes directly:
+//
+//	<header data-cms-section="header" data-cms-label="Header" data-cms-shared>
+//	  @components.Text(p, "nav_cta", "Nav CTA", "Get started")
+//	</header>
+templ SharedSection(key, label string) {
+	<div data-cms-section={ key } data-cms-label={ label } data-cms-shared>
+		{ children... }
+	</div>
+}

@@ -869,6 +869,109 @@ func TestStripCMSAttributes_NoOp_WhenNoCmsAttrs(t *testing.T) {
 	}
 }
 
+func TestStripCMSAttributes_RemovesSectionAttrs(t *testing.T) {
+	input := `<header class="site-header" data-cms-section="header" data-cms-label="Header" data-cms-shared><nav>links</nav></header>`
+	got := stripCMSAttributes(input)
+	want := `<header class="site-header"><nav>links</nav></header>`
+	if got != want {
+		t.Errorf("stripCMSAttributes =\n  %q\nwant:\n  %q", got, want)
+	}
+}
+
+func TestStripCMSAttributes_RemovesSectionAndFieldAttrs(t *testing.T) {
+	input := `<section data-cms-section="hero" data-cms-label="Hero"><h1 data-cms-field="title" data-cms-type="text">Welcome</h1></section>`
+	got := stripCMSAttributes(input)
+	want := `<section><h1>Welcome</h1></section>`
+	if got != want {
+		t.Errorf("stripCMSAttributes =\n  %q\nwant:\n  %q", got, want)
+	}
+}
+
+func TestBuild_SectionAttrs_StrippedFromProduction_PreservedInTemplate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{
+				{ID: "p1", Path: "/home", Slug: "home", TemplateID: "t1"},
+			})
+		case r.URL.Path == "/api/v1/test/pages/home":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/home", Slug: "home",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: "en", Value: jsonVal("Hello")},
+					{Key: "copyright", Locale: "en", Value: jsonVal("2026 Acme")},
+				},
+			})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/home", testRender(func(p PageData) string {
+		return `<header data-cms-section="header" data-cms-label="Header" data-cms-shared>` +
+			`<h1 data-cms-field="title" data-cms-type="text">` + p.TextOr("title", "Welcome") + `</h1>` +
+			`</header>` +
+			`<section data-cms-section="hero" data-cms-label="Hero">` +
+			`<p>Static content</p>` +
+			`</section>` +
+			`<footer data-cms-section="footer" data-cms-label="Footer" data-cms-shared>` +
+			`<span data-cms-field="copyright" data-cms-type="text">` + p.TextOr("copyright", "2026") + `</span>` +
+			`</footer>`
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Production HTML: no data-cms-* attributes at all.
+	prod, err := os.ReadFile(filepath.Join(outDir, "home", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prodHTML := string(prod)
+
+	if strings.Contains(prodHTML, "data-cms-") {
+		t.Errorf("production HTML should not contain data-cms-* attributes: %q", prodHTML)
+	}
+	// Structural elements preserved, content rendered.
+	if !strings.Contains(prodHTML, "<header>") {
+		t.Errorf("production HTML should contain <header>: %q", prodHTML)
+	}
+	if !strings.Contains(prodHTML, "Hello") {
+		t.Errorf("production HTML should contain rendered title: %q", prodHTML)
+	}
+	if !strings.Contains(prodHTML, "2026 Acme") {
+		t.Errorf("production HTML should contain rendered copyright: %q", prodHTML)
+	}
+
+	// Template HTML: preserves all data-cms-* attributes.
+	tmpl, err := os.ReadFile(filepath.Join(outDir, "home", "index.template.html"))
+	if err != nil {
+		t.Fatalf("template file not found: %v", err)
+	}
+	tmplHTML := string(tmpl)
+
+	if !strings.Contains(tmplHTML, `data-cms-section="header"`) {
+		t.Errorf("template should contain data-cms-section='header': %q", tmplHTML)
+	}
+	if !strings.Contains(tmplHTML, `data-cms-shared`) {
+		t.Errorf("template should contain data-cms-shared: %q", tmplHTML)
+	}
+	if !strings.Contains(tmplHTML, `data-cms-section="hero"`) {
+		t.Errorf("template should contain data-cms-section='hero': %q", tmplHTML)
+	}
+	if !strings.Contains(tmplHTML, `data-cms-section="footer"`) {
+		t.Errorf("template should contain data-cms-section='footer': %q", tmplHTML)
+	}
+	if !strings.Contains(tmplHTML, `data-cms-field="title"`) {
+		t.Errorf("template should contain data-cms-field='title': %q", tmplHTML)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // pathToTemplateFile tests
 // ---------------------------------------------------------------------------
