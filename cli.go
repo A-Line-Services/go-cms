@@ -274,6 +274,12 @@ func (ds *devServer) handleRebuild(w http.ResponseWriter, r *http.Request) {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
+	// Let the site reload any cached state (e.g. Vite manifest) before
+	// rebuilding so that generated HTML references the latest asset hashes.
+	if fn := ds.app.config.BeforeRebuild; fn != nil {
+		fn()
+	}
+
 	fmt.Println("rebuilding...")
 	if err := ds.app.Build(context.Background(), ds.opts); err != nil {
 		http.Error(w, "rebuild failed: "+err.Error(), http.StatusInternalServerError)

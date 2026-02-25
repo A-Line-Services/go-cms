@@ -32,6 +32,11 @@ type Config struct {
 
 	// Locale is the default locale for content resolution (default: "en").
 	Locale string
+
+	// BeforeRebuild is called by the dev server before each rebuild.
+	// Use this to reload Vite manifests or other state that may have
+	// changed on disk since the last build.
+	BeforeRebuild func()
 }
 
 // RenderFunc creates a templ Component from page data.

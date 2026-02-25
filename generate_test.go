@@ -62,6 +62,11 @@ func TestGenerateRoutes_BasicStructure(t *testing.T) {
 		t.Errorf("missing blog import:\n%s", code)
 	}
 
+	// Should register root layout.
+	if !strings.Contains(code, `app.Layout("/", "root", pages.RootLayout)`) {
+		t.Errorf("missing root layout registration:\n%s", code)
+	}
+
 	// Should register pages.
 	if !strings.Contains(code, `app.Page("/", pages.IndexPage)`) {
 		t.Errorf("missing / registration:\n%s", code)
@@ -138,6 +143,69 @@ func TestGenerateRoutes_MultipleCollections(t *testing.T) {
 	}
 	if !strings.Contains(code, `app.Collection("/products", "Products", products.IndexPage, products.EntryPage)`) {
 		t.Errorf("missing products collection:\n%s", code)
+	}
+}
+
+func TestGenerateRoutes_NestedLayouts(t *testing.T) {
+	dir := t.TempDir()
+
+	pagesDir := filepath.Join(dir, "pages")
+	writeTemplFile(t, pagesDir, "layout.templ")
+	writeTemplFile(t, pagesDir, "index.templ")
+	writeTemplFile(t, pagesDir, "docs/layout.templ")
+	writeTemplFile(t, pagesDir, "docs/index.templ")
+	writeTemplFile(t, pagesDir, "docs/getting-started.templ")
+
+	code, err := GenerateRoutes(GenerateConfig{
+		PagesDir:   pagesDir,
+		ModulePath: "myapp",
+		Package:    "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should register both layouts, root first.
+	if !strings.Contains(code, `app.Layout("/", "root", pages.RootLayout)`) {
+		t.Errorf("missing root layout:\n%s", code)
+	}
+	if !strings.Contains(code, `app.Layout("/docs", "docs", docs.RootLayout)`) {
+		t.Errorf("missing docs layout:\n%s", code)
+	}
+
+	// Should import docs sub-package.
+	if !strings.Contains(code, `"myapp/pages/docs"`) {
+		t.Errorf("missing docs import:\n%s", code)
+	}
+
+	// Should register pages.
+	if !strings.Contains(code, `app.Page("/docs", docs.IndexPage)`) {
+		t.Errorf("missing /docs page:\n%s", code)
+	}
+	if !strings.Contains(code, `app.Page("/docs/getting-started", docs.GettingStartedPage)`) {
+		t.Errorf("missing /docs/getting-started page:\n%s", code)
+	}
+}
+
+func TestGenerateRoutes_NoLayout(t *testing.T) {
+	dir := t.TempDir()
+
+	pagesDir := filepath.Join(dir, "pages")
+	writeTemplFile(t, pagesDir, "index.templ")
+	writeTemplFile(t, pagesDir, "about.templ")
+
+	code, err := GenerateRoutes(GenerateConfig{
+		PagesDir:   pagesDir,
+		ModulePath: "myapp",
+		Package:    "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should NOT have Layout calls.
+	if strings.Contains(code, "Layout") {
+		t.Errorf("unexpected Layout call:\n%s", code)
 	}
 }
 

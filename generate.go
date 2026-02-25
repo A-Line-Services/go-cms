@@ -31,6 +31,13 @@ type collectionInfo struct {
 	pkg      string // Go package name, e.g. "blog"
 }
 
+// layoutInfo describes a layout.templ file discovered during scanning.
+type layoutInfo struct {
+	pathPrefix string // URL path prefix, e.g. "/", "/blog"
+	id         string // layout id, e.g. "root", "blog"
+	pkg        string // Go package name, e.g. "pages", "blog"
+}
+
 // GenerateRoutes produces Go source code that registers all routes
 // discovered in the pages directory. The generated code exports a
 // RegisterRoutes(app *cms.App) function.
@@ -95,8 +102,38 @@ func GenerateRoutes(cfg GenerateConfig) (string, error) {
 		}
 	}
 
+	// Scan for layout.templ files.
+	var layouts []layoutInfo
+	err = filepath.WalkDir(cfg.PagesDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || d.Name() != "layout.templ" {
+			return nil
+		}
+		relDir, _ := filepath.Rel(cfg.PagesDir, filepath.Dir(path))
+		relDir = filepath.ToSlash(relDir)
+
+		pathPrefix := "/"
+		id := "root"
+		pkg := cfg.PagesPackage
+		if relDir != "" && relDir != "." {
+			pathPrefix = "/" + relDir
+			id = filepath.Base(relDir)
+			pkg = filepath.Base(relDir)
+		}
+		layouts = append(layouts, layoutInfo{pathPrefix: pathPrefix, id: id, pkg: pkg})
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("scanning layouts: %w", err)
+	}
+	sort.Slice(layouts, func(i, j int) bool {
+		return layouts[i].pathPrefix < layouts[j].pathPrefix
+	})
+
 	// Build imports. Root pages package is always imported.
-	// Sub-packages (collections) are imported with their directory name.
+	// Sub-packages (collections and layouts) are imported with their directory name.
 	imports := map[string]string{} // import path → alias (empty = no alias)
 	rootPagesImport := cfg.ModulePath + "/" + cfg.PagesPackage
 	imports[rootPagesImport] = ""
@@ -112,6 +149,13 @@ func GenerateRoutes(cfg GenerateConfig) (string, error) {
 		c := collections[k]
 		importPath := rootPagesImport + "/" + c.pkg
 		imports[importPath] = ""
+	}
+
+	for _, l := range layouts {
+		if l.pkg != cfg.PagesPackage {
+			importPath := rootPagesImport + "/" + l.pkg
+			imports[importPath] = ""
+		}
 	}
 
 	// Build the generated source.
@@ -137,11 +181,19 @@ func GenerateRoutes(cfg GenerateConfig) (string, error) {
 	b.WriteString(")\n\n")
 
 	// RegisterRoutes function.
-	b.WriteString("// RegisterRoutes registers all pages and collections discovered\n")
+	b.WriteString("// RegisterRoutes registers all pages, layouts, and collections discovered\n")
 	b.WriteString("// in the pages directory. Generated from the file structure.\n")
 	b.WriteString("func RegisterRoutes(app *cms.App) {\n")
 
-	// Pages first.
+	// Layouts first (outermost → innermost by path prefix sort order).
+	for _, l := range layouts {
+		fmt.Fprintf(&b, "\tapp.Layout(%q, %q, %s.RootLayout)\n", l.pathPrefix, l.id, l.pkg)
+	}
+	if len(layouts) > 0 && (len(pages) > 0 || len(collKeys) > 0) {
+		b.WriteString("\n")
+	}
+
+	// Then pages.
 	for _, p := range pages {
 		dir := filepath.Dir(p.FilePath)
 		fn := funcName(filepath.Base(p.FilePath))
