@@ -1,8 +1,8 @@
-# Generated templ Go files
-*_templ.go
-
-# Generated route registrations
+# Generated route registrations (site projects only, not this library)
 routes_gen.go
+
+# Generated templ Go files in examples (library components are committed)
+examples/**/*_templ.go
 
 # Build output
 dist/
