@@ -92,9 +92,112 @@ func TestNoSitemap_ExcludesPage(t *testing.T) {
 		t.Fatalf("expected 2 pages, got %d: %v", len(sd.pages), sd.pages)
 	}
 	for _, p := range sd.pages {
-		if p == "/404" {
+		if p.path == "/404" {
 			t.Error("404 page should be excluded from sitemap")
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Priority and ChangeFreq options
+// ---------------------------------------------------------------------------
+
+func TestPriority_OverridesDefault(t *testing.T) {
+	app := NewApp(Config{SiteURL: "https://example.com"})
+	app.Page("/about", testRender(func(p PageData) string { return "" }), Priority(0.9))
+
+	sd := app.collectSitemapURLs(nil, nil, "")
+
+	if len(sd.pages) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(sd.pages))
+	}
+	if sd.pages[0].priority != "0.9" {
+		t.Errorf("priority = %q, want 0.9", sd.pages[0].priority)
+	}
+}
+
+func TestChangeFreq_OverridesDefault(t *testing.T) {
+	app := NewApp(Config{SiteURL: "https://example.com"})
+	app.Page("/about", testRender(func(p PageData) string { return "" }), ChangeFreq("monthly"))
+
+	sd := app.collectSitemapURLs(nil, nil, "")
+
+	if len(sd.pages) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(sd.pages))
+	}
+	if sd.pages[0].changeFreq != "monthly" {
+		t.Errorf("changeFreq = %q, want monthly", sd.pages[0].changeFreq)
+	}
+}
+
+func TestDefaultPriority_HomepageIsHighest(t *testing.T) {
+	app := NewApp(Config{SiteURL: "https://example.com"})
+	app.Page("/", testRender(func(p PageData) string { return "" }))
+	app.Page("/about", testRender(func(p PageData) string { return "" }))
+
+	sd := app.collectSitemapURLs(nil, nil, "")
+
+	var homePri, aboutPri string
+	for _, p := range sd.pages {
+		if p.path == "/" {
+			homePri = p.priority
+		}
+		if p.path == "/about" {
+			aboutPri = p.priority
+		}
+	}
+	if homePri != "1.0" {
+		t.Errorf("home priority = %q, want 1.0", homePri)
+	}
+	if aboutPri != "0.8" {
+		t.Errorf("about priority = %q, want 0.8", aboutPri)
+	}
+}
+
+func TestDefaultChangeFreq_HomepageIsDaily(t *testing.T) {
+	app := NewApp(Config{SiteURL: "https://example.com"})
+	app.Page("/", testRender(func(p PageData) string { return "" }))
+	app.Page("/about", testRender(func(p PageData) string { return "" }))
+
+	sd := app.collectSitemapURLs(nil, nil, "")
+
+	var homeFreq, aboutFreq string
+	for _, p := range sd.pages {
+		if p.path == "/" {
+			homeFreq = p.changeFreq
+		}
+		if p.path == "/about" {
+			aboutFreq = p.changeFreq
+		}
+	}
+	if homeFreq != "daily" {
+		t.Errorf("home changefreq = %q, want daily", homeFreq)
+	}
+	if aboutFreq != "weekly" {
+		t.Errorf("about changefreq = %q, want weekly", aboutFreq)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// lastmod from CMS updated_at
+// ---------------------------------------------------------------------------
+
+func TestLastMod_UsesCMSUpdatedAt(t *testing.T) {
+	updatedAt := "2026-02-20T14:30:00Z"
+	app := NewApp(Config{SiteURL: "https://example.com"})
+	app.Page("/about", testRender(func(p PageData) string { return "" }))
+
+	allPages := []apiPageListItem{
+		{Path: "/about", Slug: "about", UpdatedAt: &updatedAt},
+	}
+
+	sd := app.collectSitemapURLs(allPages, nil, "")
+
+	if len(sd.pages) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(sd.pages))
+	}
+	if sd.pages[0].lastMod != "2026-02-20" {
+		t.Errorf("lastmod = %q, want 2026-02-20", sd.pages[0].lastMod)
 	}
 }
 
@@ -147,7 +250,7 @@ func TestCollectSitemapURLs_MultiLocale(t *testing.T) {
 
 	sd := app.collectSitemapURLs(nil, locales, "en")
 
-	// 2 pages × 2 locales = 4.
+	// 2 pages * 2 locales = 4.
 	if len(sd.pages) != 4 {
 		t.Errorf("expected 4 pages, got %d: %v", len(sd.pages), sd.pages)
 	}
@@ -156,10 +259,10 @@ func TestCollectSitemapURLs_MultiLocale(t *testing.T) {
 	hasEN := false
 	hasNL := false
 	for _, p := range sd.pages {
-		if strings.HasPrefix(p, "/en") {
+		if strings.HasPrefix(p.path, "/en") {
 			hasEN = true
 		}
-		if strings.HasPrefix(p, "/nl") {
+		if strings.HasPrefix(p.path, "/nl") {
 			hasNL = true
 		}
 	}
@@ -169,14 +272,17 @@ func TestCollectSitemapURLs_MultiLocale(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Sitemap XML writing — single file
+// Sitemap XML writing — single file with metadata
 // ---------------------------------------------------------------------------
 
 func TestSitemapWrite_SingleFile(t *testing.T) {
 	sd := &sitemapData{
-		siteURL:     "https://example.com",
-		pages:       []string{"/", "/about"},
-		collections: map[string][]string{},
+		siteURL: "https://example.com",
+		pages: []sitemapURLEntry{
+			{path: "/", lastMod: "2026-02-25", changeFreq: "daily", priority: "1.0"},
+			{path: "/about", lastMod: "2026-02-25", changeFreq: "weekly", priority: "0.8"},
+		},
+		collections: map[string][]sitemapURLEntry{},
 	}
 
 	outDir := t.TempDir()
@@ -203,17 +309,38 @@ func TestSitemapWrite_SingleFile(t *testing.T) {
 	if !strings.Contains(content, "<loc>https://example.com/about</loc>") {
 		t.Error("missing /about URL")
 	}
+	// Should contain metadata.
+	if !strings.Contains(content, "<lastmod>2026-02-25</lastmod>") {
+		t.Error("missing lastmod")
+	}
+	if !strings.Contains(content, "<changefreq>daily</changefreq>") {
+		t.Error("missing changefreq daily")
+	}
+	if !strings.Contains(content, "<changefreq>weekly</changefreq>") {
+		t.Error("missing changefreq weekly")
+	}
+	if !strings.Contains(content, "<priority>1.0</priority>") {
+		t.Error("missing priority 1.0")
+	}
+	if !strings.Contains(content, "<priority>0.8</priority>") {
+		t.Error("missing priority 0.8")
+	}
 }
 
 // ---------------------------------------------------------------------------
-// Sitemap XML writing — with hreflang alternates
+// Sitemap XML writing — with hreflang alternates + x-default
 // ---------------------------------------------------------------------------
 
 func TestSitemapWrite_MultiLocale_HasHreflang(t *testing.T) {
 	sd := &sitemapData{
-		siteURL:     "https://example.com",
-		pages:       []string{"/en", "/nl", "/en/about", "/nl/about"},
-		collections: map[string][]string{},
+		siteURL: "https://example.com",
+		pages: []sitemapURLEntry{
+			{path: "/en", changeFreq: "daily", priority: "1.0"},
+			{path: "/nl", changeFreq: "daily", priority: "1.0"},
+			{path: "/en/about", changeFreq: "weekly", priority: "0.8"},
+			{path: "/nl/about", changeFreq: "weekly", priority: "0.8"},
+		},
+		collections: map[string][]sitemapURLEntry{},
 	}
 	locales := []SiteLocale{
 		{Code: "en", Label: "English", IsDefault: true},
@@ -242,6 +369,14 @@ func TestSitemapWrite_MultiLocale_HasHreflang(t *testing.T) {
 	if !strings.Contains(content, `hreflang="nl"`) {
 		t.Error("missing nl hreflang")
 	}
+	// Should have x-default hreflang.
+	if !strings.Contains(content, `hreflang="x-default"`) {
+		t.Error("missing x-default hreflang")
+	}
+	// x-default for the root should point to the unprefixed URL.
+	if !strings.Contains(content, `hreflang="x-default" href="https://example.com/"`) {
+		t.Errorf("x-default for root should point to unprefixed URL, got:\n%s", content)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -251,10 +386,13 @@ func TestSitemapWrite_MultiLocale_HasHreflang(t *testing.T) {
 func TestSitemapWrite_Index_MultipleCollections(t *testing.T) {
 	sd := &sitemapData{
 		siteURL: "https://example.com",
-		pages:   []string{"/", "/about"},
-		collections: map[string][]string{
-			"blog":     {"/blog/a", "/blog/b"},
-			"products": {"/products/x", "/products/y"},
+		pages: []sitemapURLEntry{
+			{path: "/", priority: "1.0"},
+			{path: "/about", priority: "0.8"},
+		},
+		collections: map[string][]sitemapURLEntry{
+			"blog":     {{path: "/blog/a", priority: "0.6"}, {path: "/blog/b", priority: "0.6"}},
+			"products": {{path: "/products/x", priority: "0.6"}, {path: "/products/y", priority: "0.6"}},
 		},
 	}
 
@@ -327,9 +465,19 @@ func TestWriteRobotsTxt(t *testing.T) {
 
 func TestMakeSitemapURL_SingleLocale(t *testing.T) {
 	sd := &sitemapData{siteURL: "https://example.com"}
-	u := sd.makeSitemapURL("/about", nil)
+	e := sitemapURLEntry{path: "/about", lastMod: "2026-02-25", changeFreq: "weekly", priority: "0.8"}
+	u := sd.makeSitemapURL(e, nil)
 	if u.Loc != "https://example.com/about" {
 		t.Errorf("Loc = %q, want https://example.com/about", u.Loc)
+	}
+	if u.LastMod != "2026-02-25" {
+		t.Errorf("LastMod = %q, want 2026-02-25", u.LastMod)
+	}
+	if u.ChangeFreq != "weekly" {
+		t.Errorf("ChangeFreq = %q, want weekly", u.ChangeFreq)
+	}
+	if u.Priority != "0.8" {
+		t.Errorf("Priority = %q, want 0.8", u.Priority)
 	}
 	if len(u.Alternates) != 0 {
 		t.Errorf("expected no alternates for single locale, got %d", len(u.Alternates))
@@ -342,23 +490,27 @@ func TestMakeSitemapURL_MultiLocale(t *testing.T) {
 		{Code: "nl", Label: "Nederlands"},
 	}
 	sd := &sitemapData{siteURL: "https://example.com"}
-	u := sd.makeSitemapURL("/en/about", locales)
+	e := sitemapURLEntry{path: "/en/about", changeFreq: "weekly", priority: "0.8"}
+	u := sd.makeSitemapURL(e, locales)
 
 	if u.Loc != "https://example.com/en/about" {
 		t.Errorf("Loc = %q", u.Loc)
 	}
-	if len(u.Alternates) != 2 {
-		t.Fatalf("expected 2 alternates, got %d", len(u.Alternates))
+	// 2 locale alternates + 1 x-default = 3.
+	if len(u.Alternates) != 3 {
+		t.Fatalf("expected 3 alternates (en, nl, x-default), got %d", len(u.Alternates))
 	}
 
 	// Check alternates point to the right URLs.
-	var enAlt, nlAlt string
+	var enAlt, nlAlt, xDefault string
 	for _, alt := range u.Alternates {
-		if alt.Hreflang == "en" {
+		switch alt.Hreflang {
+		case "en":
 			enAlt = alt.Href
-		}
-		if alt.Hreflang == "nl" {
+		case "nl":
 			nlAlt = alt.Href
+		case "x-default":
+			xDefault = alt.Href
 		}
 	}
 	if enAlt != "https://example.com/en/about" {
@@ -366,6 +518,31 @@ func TestMakeSitemapURL_MultiLocale(t *testing.T) {
 	}
 	if nlAlt != "https://example.com/nl/about" {
 		t.Errorf("nl alternate = %q", nlAlt)
+	}
+	if xDefault != "https://example.com/about" {
+		t.Errorf("x-default = %q, want https://example.com/about", xDefault)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// formatPriority
+// ---------------------------------------------------------------------------
+
+func TestFormatPriority(t *testing.T) {
+	tests := []struct {
+		in   float64
+		want string
+	}{
+		{1.0, "1.0"},
+		{0.8, "0.8"},
+		{0.5, "0.5"},
+		{0.0, "0.0"},
+	}
+	for _, tt := range tests {
+		got := formatPriority(tt.in)
+		if got != tt.want {
+			t.Errorf("formatPriority(%v) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
 
@@ -375,9 +552,13 @@ func TestMakeSitemapURL_MultiLocale(t *testing.T) {
 
 func TestSitemapWrite_ValidXML(t *testing.T) {
 	sd := &sitemapData{
-		siteURL:     "https://example.com",
-		pages:       []string{"/", "/about", "/contact"},
-		collections: map[string][]string{},
+		siteURL: "https://example.com",
+		pages: []sitemapURLEntry{
+			{path: "/", priority: "1.0", changeFreq: "daily"},
+			{path: "/about", priority: "0.8", changeFreq: "weekly"},
+			{path: "/contact", priority: "0.8", changeFreq: "weekly"},
+		},
+		collections: map[string][]sitemapURLEntry{},
 	}
 
 	outDir := t.TempDir()
@@ -469,6 +650,16 @@ func TestBuild_WithSiteURL_GeneratesSitemapAndRobots(t *testing.T) {
 	// Should not contain _template.
 	if strings.Contains(sitemap, "_template") {
 		t.Error("sitemap should not contain _template")
+	}
+	// Should contain metadata.
+	if !strings.Contains(sitemap, "<lastmod>") {
+		t.Error("sitemap missing lastmod")
+	}
+	if !strings.Contains(sitemap, "<changefreq>") {
+		t.Error("sitemap missing changefreq")
+	}
+	if !strings.Contains(sitemap, "<priority>") {
+		t.Error("sitemap missing priority")
 	}
 
 	// robots.txt should exist.

@@ -13,10 +13,11 @@ import (
 // ---------------------------------------------------------------------------
 
 type apiPageListItem struct {
-	ID         string `json:"id"`
-	Path       string `json:"path"`
-	Slug       string `json:"slug"`
-	TemplateID string `json:"template_id"`
+	ID         string  `json:"id"`
+	Path       string  `json:"path"`
+	Slug       string  `json:"slug"`
+	TemplateID string  `json:"template_id"`
+	UpdatedAt  *string `json:"updated_at,omitempty"`
 }
 
 type apiPageResponse struct {

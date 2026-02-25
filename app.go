@@ -60,12 +60,27 @@ type PageOption func(*pageDef)
 // NoSitemap excludes a page from the generated sitemap.
 var NoSitemap PageOption = func(p *pageDef) { p.noSitemap = true }
 
+// Priority sets a custom sitemap priority for a page (0.0–1.0).
+// If not set, a default is derived from the page type.
+func Priority(v float64) PageOption {
+	return func(p *pageDef) { p.sitemapPriority = &v }
+}
+
+// ChangeFreq sets a custom sitemap change frequency for a page.
+// Valid values: "always", "hourly", "daily", "weekly", "monthly", "yearly", "never".
+// If not set, a default is derived from the page type.
+func ChangeFreq(v string) PageOption {
+	return func(p *pageDef) { p.sitemapChangeFreq = v }
+}
+
 // pageDef is an internal registration for a fixed page.
 type pageDef struct {
-	path      string
-	title     string
-	render    RenderFunc
-	noSitemap bool
+	path              string
+	title             string
+	render            RenderFunc
+	noSitemap         bool
+	sitemapPriority   *float64
+	sitemapChangeFreq string
 }
 
 // collectionDef is an internal registration for a collection.
