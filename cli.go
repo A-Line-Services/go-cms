@@ -143,6 +143,12 @@ func serveStatic(dir, port string) {
 			http.ServeFile(w, r, indexPath)
 			return
 		}
+		// Try path.html for error pages (e.g. /404 → 404.html).
+		htmlPath := filePath + ".html"
+		if _, err := os.Stat(htmlPath); err == nil {
+			http.ServeFile(w, r, htmlPath)
+			return
+		}
 		// Fallback to default behavior (404 etc.).
 		fileServer.ServeHTTP(w, r)
 	})
@@ -182,6 +188,12 @@ func (a *App) runDev() {
 	port := fs.String("port", envOrDefault("PORT", "3000"), "port to listen on")
 	outDir := fs.String("out", ".dev-dist", "build output directory")
 	_ = fs.Parse(os.Args[2:])
+
+	// In dev mode, ensure SiteURL is set so sitemap.xml is always generated.
+	// If not configured, fall back to the local dev server address.
+	if a.config.SiteURL == "" {
+		a.config.SiteURL = "http://localhost:" + *port
+	}
 
 	opts := BuildOptions{
 		OutDir:        *outDir,
@@ -259,6 +271,12 @@ func devFileHandler(dir string) http.Handler {
 		indexPath := filePath + "/index.html"
 		if _, err := os.Stat(indexPath); err == nil {
 			http.ServeFile(w, r, indexPath)
+			return
+		}
+		// Try path.html for error pages (e.g. /404 → 404.html).
+		htmlPath := filePath + ".html"
+		if _, err := os.Stat(htmlPath); err == nil {
+			http.ServeFile(w, r, htmlPath)
 			return
 		}
 		fileServer.ServeHTTP(w, r)
