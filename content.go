@@ -7,6 +7,18 @@ import (
 	"strings"
 )
 
+// SiteLocale represents a configured locale for a CMS site.
+type SiteLocale struct {
+	// Code is the locale identifier (e.g. "en", "nl", "fr").
+	Code string
+
+	// Label is the human-readable name (e.g. "English", "Nederlands").
+	Label string
+
+	// IsDefault indicates whether this is the site's default locale.
+	IsDefault bool
+}
+
 // SEOData holds SEO metadata for a page.
 type SEOData struct {
 	MetaTitle       string
@@ -54,6 +66,7 @@ type EntryData struct {
 	Fields         map[string]any
 	Subcollections map[string][]EntryData
 	imgProc        imageProcessor
+	localePrefix   string
 }
 
 // Text returns a field value as a string.
@@ -118,11 +131,31 @@ type PageData struct {
 	Slug   string
 	Locale string
 
+	// Locales lists all configured locales for the site.
+	// Non-empty only when the site has multiple locales.
+	Locales []SiteLocale
+
 	fields         map[string]any
 	subcollections map[string][]EntryData
 	seo            *SEOData
 	listings       map[string][]PageData
 	imgProc        imageProcessor
+
+	// contentPath is the CMS path without locale prefix (e.g. "/about").
+	// Used by findComponent() to match against registered pages/collections.
+	// Empty in single-locale mode (Path is used directly).
+	contentPath string
+
+	// localePrefix is the URL prefix for this page's locale.
+	// "" for the default-locale root build, "/en" or "/nl" for prefixed builds.
+	localePrefix string
+
+	// defaultLocale is the site's default locale code.
+	defaultLocale string
+
+	// layoutManifest maps layout path prefixes to layout IDs.
+	// Set by the build pipeline when layouts are registered.
+	layoutManifest map[string]string
 }
 
 // NewPageData creates a PageData with the given content.
@@ -140,6 +173,76 @@ func NewPageData(
 		subcollections: subcollections,
 		seo:            seo,
 	}
+}
+
+// LocalePrefix returns the URL prefix for this page's locale.
+// Returns "" for the default-locale root build, "/en" or "/nl" for prefixed builds.
+func (p PageData) LocalePrefix() string {
+	return p.localePrefix
+}
+
+// ContentPath returns the CMS content path (without locale prefix).
+// Falls back to Path in single-locale mode.
+func (p PageData) ContentPath() string {
+	if p.contentPath != "" {
+		return p.contentPath
+	}
+	return p.Path
+}
+
+// IsDefaultLocale reports whether this page is rendered in the site's default locale.
+func (p PageData) IsDefaultLocale() bool {
+	return p.defaultLocale == "" || p.Locale == p.defaultLocale
+}
+
+// AlternatePath returns the URL path for this page in a different locale.
+// For the site's default locale, returns the unprefixed root path (e.g. "/about").
+// For other locales, returns the prefixed path (e.g. "/nl/about").
+func (p PageData) AlternatePath(locale string) string {
+	cp := p.ContentPath()
+	if locale == p.defaultLocale {
+		return cp
+	}
+	if cp == "/" {
+		return "/" + locale
+	}
+	return "/" + locale + cp
+}
+
+// PrefixedAlternatePath returns the locale-prefixed URL path, even for the default locale.
+// Useful for hreflang tags where every locale needs an explicit prefixed path.
+func (p PageData) PrefixedAlternatePath(locale string) string {
+	cp := p.ContentPath()
+	if cp == "/" {
+		return "/" + locale
+	}
+	return "/" + locale + cp
+}
+
+// LocaleHref prefixes an internal path with the current locale prefix.
+// External URLs (starting with "http", "//", or "#") are returned unchanged.
+func (p PageData) LocaleHref(path string) string {
+	return prefixInternalHref(path, p.localePrefix)
+}
+
+// LayoutManifest returns the registered layout prefix→ID mapping.
+// Returns nil when no layouts are registered.
+func (p PageData) LayoutManifest() map[string]string {
+	return p.layoutManifest
+}
+
+// HasLayouts reports whether layouts are configured for this build.
+func (p PageData) HasLayouts() bool {
+	return len(p.layoutManifest) > 0
+}
+
+// contentPathOrPath returns contentPath if set, otherwise Path.
+// Used internally for layout chain matching.
+func (p PageData) contentPathOrPath() string {
+	if p.contentPath != "" {
+		return p.contentPath
+	}
+	return p.Path
 }
 
 // Text returns a field value as a string. Returns "" if not found.
@@ -176,15 +279,18 @@ func (p PageData) ImageOr(key string, fallback ImageValue) ImageValue {
 }
 
 // URLOr returns the CMS URL href, or fallback if missing/empty.
+// Internal paths (starting with "/") are auto-prefixed with the locale prefix.
 func (p PageData) URLOr(key, fallback string) string {
+	href := fallback
 	if v := fieldURL(p.fields, key); v.Href != "" {
-		return v.Href
+		href = v.Href
 	}
-	return fallback
+	return prefixInternalHref(href, p.localePrefix)
 }
 
 // URLValueOr returns the full CMS URL value (href, text, title, target),
 // using the provided fallback href and text if the field is missing/empty.
+// Internal href paths are auto-prefixed with the locale prefix.
 func (p PageData) URLValueOr(key, fallbackHref, fallbackText string) URLValue {
 	v := fieldURL(p.fields, key)
 	if v.Href == "" {
@@ -196,6 +302,7 @@ func (p PageData) URLValueOr(key, fallbackHref, fallbackText string) URLValue {
 	if v.Target == "" {
 		v.Target = "_self"
 	}
+	v.Href = prefixInternalHref(v.Href, p.localePrefix)
 	return v
 }
 
@@ -239,15 +346,18 @@ func (e EntryData) ImageOr(key string, fallback ImageValue) ImageValue {
 }
 
 // URLOr returns the CMS URL href, or fallback if missing/empty.
+// Internal paths are auto-prefixed with the locale prefix.
 func (e EntryData) URLOr(key, fallback string) string {
+	href := fallback
 	if v := fieldURL(e.Fields, key); v.Href != "" {
-		return v.Href
+		href = v.Href
 	}
-	return fallback
+	return prefixInternalHref(href, e.localePrefix)
 }
 
 // URLValueOr returns the full CMS URL value (href, text, title, target),
 // using the provided fallback href and text if the field is missing/empty.
+// Internal href paths are auto-prefixed with the locale prefix.
 func (e EntryData) URLValueOr(key, fallbackHref, fallbackText string) URLValue {
 	v := fieldURL(e.Fields, key)
 	if v.Href == "" {
@@ -259,6 +369,7 @@ func (e EntryData) URLValueOr(key, fallbackHref, fallbackText string) URLValue {
 	if v.Target == "" {
 		v.Target = "_self"
 	}
+	v.Href = prefixInternalHref(v.Href, e.localePrefix)
 	return v
 }
 
@@ -359,6 +470,18 @@ func setEntryImageProcessor(subcollections map[string][]EntryData, proc imagePro
 		for i := range entries {
 			entries[i].imgProc = proc
 			setEntryImageProcessor(entries[i].Subcollections, proc)
+		}
+		subcollections[key] = entries
+	}
+}
+
+// setEntryLocalePrefix recursively sets the locale prefix on all
+// subcollection entries so nested URL fields are auto-prefixed.
+func setEntryLocalePrefix(subcollections map[string][]EntryData, prefix string) {
+	for key, entries := range subcollections {
+		for i := range entries {
+			entries[i].localePrefix = prefix
+			setEntryLocalePrefix(entries[i].Subcollections, prefix)
 		}
 		subcollections[key] = entries
 	}
@@ -477,6 +600,33 @@ func fieldNumber(fields map[string]any, key string) float64 {
 	default:
 		return 0
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Locale-aware URL prefixing
+// ---------------------------------------------------------------------------
+
+// prefixInternalHref prepends a locale prefix to internal paths.
+// External URLs (http, //, mailto:, #, empty) are returned unchanged.
+// A path like "/about" with prefix "/en" becomes "/en/about".
+func prefixInternalHref(href, prefix string) string {
+	if prefix == "" || href == "" {
+		return href
+	}
+	// Don't prefix external URLs, anchors, mailto, tel, etc.
+	if strings.HasPrefix(href, "http://") || strings.HasPrefix(href, "https://") ||
+		strings.HasPrefix(href, "//") || strings.HasPrefix(href, "#") ||
+		strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "tel:") {
+		return href
+	}
+	// Only prefix paths starting with /
+	if !strings.HasPrefix(href, "/") {
+		return href
+	}
+	if href == "/" {
+		return prefix
+	}
+	return prefix + href
 }
 
 // ---------------------------------------------------------------------------

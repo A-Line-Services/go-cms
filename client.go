@@ -66,6 +66,12 @@ type apiEmailTemplateResponse struct {
 	Fields    []apiEmailFieldValue `json:"fields"`
 }
 
+type apiLocaleResponse struct {
+	Locale    string `json:"locale"`
+	Label     string `json:"label"`
+	IsDefault bool   `json:"is_default"`
+}
+
 type apiEmailFieldValue struct {
 	Key    string          `json:"key"`
 	Locale string          `json:"locale"`
@@ -175,6 +181,23 @@ func (c *Client) ListPages(ctx context.Context) ([]apiPageListItem, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+// ListLocales returns all configured locales for the site.
+func (c *Client) ListLocales(ctx context.Context) ([]SiteLocale, error) {
+	var items []apiLocaleResponse
+	if err := c.do(ctx, "/locales", &items); err != nil {
+		return nil, err
+	}
+	locales := make([]SiteLocale, len(items))
+	for i, item := range items {
+		locales[i] = SiteLocale{
+			Code:      item.Locale,
+			Label:     item.Label,
+			IsDefault: item.IsDefault,
+		}
+	}
+	return locales, nil
 }
 
 // GetPage fetches a published page's content by path and returns a PageData.

@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -69,6 +70,18 @@ type emailTemplateDef struct {
 	variables []EmailVariable
 }
 
+// LayoutFunc wraps page content in a layout shell. The layout receives
+// the page data and a body component to render inside its content slot.
+type LayoutFunc func(PageData, templ.Component) templ.Component
+
+// layoutDef is an internal registration for a layout that wraps pages
+// under a given path prefix.
+type layoutDef struct {
+	pathPrefix string     // e.g. "/", "/blog", "/docs"
+	id         string     // short identifier, e.g. "root", "blog"
+	fn         LayoutFunc // the layout component
+}
+
 // App is the main framework entry point. Register pages, collections,
 // and email templates, then call Run() to dispatch CLI commands.
 type App struct {
@@ -76,6 +89,7 @@ type App struct {
 	pages       []pageDef
 	collections []collectionDef
 	emails      []emailTemplateDef
+	layouts     []layoutDef
 }
 
 // NewApp creates a new App with the given configuration.
@@ -134,12 +148,107 @@ func (a *App) EmailTemplate(key, label, subject, html string, variables []EmailV
 	})
 }
 
+// Layout registers a layout that wraps all pages whose content path
+// starts with pathPrefix. Layouts nest automatically: a layout at
+// "/blog" is nested inside "/" when both are registered.
+//
+// The id is a short identifier used for fragment filenames and the
+// data-layout attribute in HTML (e.g. "root", "blog").
+//
+// When layouts are registered, page RenderFuncs should render only
+// their own content — layout wrapping is handled by the framework.
+// If no layouts are registered, everything works as before (pages
+// compose their own layouts manually).
+func (a *App) Layout(pathPrefix, id string, fn LayoutFunc) {
+	a.layouts = append(a.layouts, layoutDef{
+		pathPrefix: pathPrefix,
+		id:         id,
+		fn:         fn,
+	})
+}
+
+// hasLayouts reports whether any layouts have been registered.
+func (a *App) hasLayouts() bool {
+	return len(a.layouts) > 0
+}
+
+// layoutManifest returns the pathPrefix→id mapping for all registered layouts.
+func (a *App) layoutManifest() map[string]string {
+	if len(a.layouts) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(a.layouts))
+	for _, l := range a.layouts {
+		m[l.pathPrefix] = l.id
+	}
+	return m
+}
+
+// layoutChain returns the layout chain for a content path, sorted from
+// outermost (shortest prefix) to innermost (longest prefix).
+func (a *App) layoutChain(contentPath string) []layoutDef {
+	var chain []layoutDef
+	for _, l := range a.layouts {
+		if l.pathPrefix == "/" ||
+			contentPath == l.pathPrefix ||
+			strings.HasPrefix(contentPath, l.pathPrefix+"/") {
+			chain = append(chain, l)
+		}
+	}
+	sort.Slice(chain, func(i, j int) bool {
+		return len(chain[i].pathPrefix) < len(chain[j].pathPrefix)
+	})
+	return chain
+}
+
+// composeWithLayouts wraps a content component in the full layout chain
+// for the given page, from innermost to outermost.
+func (a *App) composeWithLayouts(p PageData, content templ.Component) templ.Component {
+	chain := a.layoutChain(p.contentPathOrPath())
+	if len(chain) == 0 {
+		return content
+	}
+	result := content
+	for i := len(chain) - 1; i >= 0; i-- {
+		result = chain[i].fn(p, result)
+	}
+	return result
+}
+
+// composeFragment wraps a content component in layouts deeper than the
+// target layout, producing the HTML that goes inside the target's slot.
+//
+// For a chain [root, blog] with target "root", this returns
+// BlogLayout(content). With target "blog", it returns just content.
+func (a *App) composeFragment(p PageData, content templ.Component, layoutID string) templ.Component {
+	chain := a.layoutChain(p.contentPathOrPath())
+	targetIdx := -1
+	for i, l := range chain {
+		if l.id == layoutID {
+			targetIdx = i
+			break
+		}
+	}
+	if targetIdx < 0 {
+		return content
+	}
+	result := content
+	for i := len(chain) - 1; i > targetIdx; i-- {
+		result = chain[i].fn(p, result)
+	}
+	return result
+}
+
 // renderPage finds the appropriate render function for a PageData
-// and renders it to an HTML string.
+// and renders it to an HTML string. When layouts are registered,
+// the content is automatically wrapped in the matching layout chain.
 func (a *App) renderPage(data PageData) string {
 	c := a.findComponent(data)
 	if c == nil {
 		return ""
+	}
+	if a.hasLayouts() {
+		c = a.composeWithLayouts(data, c)
 	}
 	var buf bytes.Buffer
 	if err := c.Render(context.Background(), &buf); err != nil {
@@ -148,11 +257,32 @@ func (a *App) renderPage(data PageData) string {
 	return buf.String()
 }
 
+// renderPageFragment renders only the fragment for a specific layout level.
+// The result is the HTML that goes inside [data-layout="<layoutID>"].
+func (a *App) renderPageFragment(data PageData, layoutID string) string {
+	c := a.findComponent(data)
+	if c == nil {
+		return ""
+	}
+	c = a.composeFragment(data, c, layoutID)
+	var buf bytes.Buffer
+	if err := c.Render(context.Background(), &buf); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
 // findComponent matches a PageData to its registered render function.
+// Uses contentPath (if set) for matching, falling back to Path.
 func (a *App) findComponent(data PageData) templ.Component {
+	matchPath := data.contentPath
+	if matchPath == "" {
+		matchPath = data.Path
+	}
+
 	// Check fixed pages first.
 	for _, p := range a.pages {
-		if p.path == data.Path {
+		if p.path == matchPath {
 			return p.render(data)
 		}
 	}
@@ -160,15 +290,15 @@ func (a *App) findComponent(data PageData) templ.Component {
 	// Check collections.
 	for _, c := range a.collections {
 		// Template page (for CMS sync crawl).
-		if data.Path == c.templateURL {
+		if matchPath == c.templateURL {
 			return c.entry(data)
 		}
 		// Listing page.
-		if data.Path == c.basePath {
+		if matchPath == c.basePath {
 			return c.listing(data)
 		}
 		// Entry page (any path under basePath/).
-		if strings.HasPrefix(data.Path, c.basePath+"/") {
+		if strings.HasPrefix(matchPath, c.basePath+"/") {
 			return c.entry(data)
 		}
 	}

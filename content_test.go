@@ -947,3 +947,287 @@ func TestImageValue_HasFormat_DistinguishesFormats(t *testing.T) {
 		t.Error("HasFormat('webp') should be true")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// i18n: locale metadata and URL auto-prefixing
+// ---------------------------------------------------------------------------
+
+func TestPageData_LocalePrefix_Empty(t *testing.T) {
+	p := NewPageData("/about", "about", "en", nil, nil, nil)
+	if got := p.LocalePrefix(); got != "" {
+		t.Errorf("LocalePrefix() = %q, want empty", got)
+	}
+}
+
+func TestPageData_LocalePrefix_Set(t *testing.T) {
+	p := NewPageData("/about", "about", "en", nil, nil, nil)
+	p.localePrefix = "/en"
+	if got := p.LocalePrefix(); got != "/en" {
+		t.Errorf("LocalePrefix() = %q, want /en", got)
+	}
+}
+
+func TestPageData_ContentPath_FallsBackToPath(t *testing.T) {
+	p := NewPageData("/about", "about", "en", nil, nil, nil)
+	if got := p.ContentPath(); got != "/about" {
+		t.Errorf("ContentPath() = %q, want /about", got)
+	}
+}
+
+func TestPageData_ContentPath_ReturnsContentPath(t *testing.T) {
+	p := NewPageData("/en/about", "about", "en", nil, nil, nil)
+	p.contentPath = "/about"
+	if got := p.ContentPath(); got != "/about" {
+		t.Errorf("ContentPath() = %q, want /about", got)
+	}
+}
+
+func TestPageData_IsDefaultLocale(t *testing.T) {
+	tests := []struct {
+		name          string
+		locale        string
+		defaultLocale string
+		want          bool
+	}{
+		{"no default set", "en", "", true},
+		{"matches default", "en", "en", true},
+		{"does not match", "nl", "en", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewPageData("/", "home", tt.locale, nil, nil, nil)
+			p.defaultLocale = tt.defaultLocale
+			if got := p.IsDefaultLocale(); got != tt.want {
+				t.Errorf("IsDefaultLocale() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPageData_AlternatePath(t *testing.T) {
+	p := NewPageData("/en/about", "about", "en", nil, nil, nil)
+	p.contentPath = "/about"
+	p.defaultLocale = "en"
+
+	tests := []struct {
+		locale string
+		want   string
+	}{
+		{"en", "/about"},    // default locale → root path
+		{"nl", "/nl/about"}, // non-default → prefixed
+		{"fr", "/fr/about"}, // another non-default → prefixed
+	}
+	for _, tt := range tests {
+		if got := p.AlternatePath(tt.locale); got != tt.want {
+			t.Errorf("AlternatePath(%q) = %q, want %q", tt.locale, got, tt.want)
+		}
+	}
+}
+
+func TestPageData_AlternatePath_RootPage(t *testing.T) {
+	p := NewPageData("/en", "home", "en", nil, nil, nil)
+	p.contentPath = "/"
+	p.defaultLocale = "en"
+
+	if got := p.AlternatePath("en"); got != "/" {
+		t.Errorf("AlternatePath('en') = %q, want /", got)
+	}
+	if got := p.AlternatePath("nl"); got != "/nl" {
+		t.Errorf("AlternatePath('nl') = %q, want /nl", got)
+	}
+}
+
+func TestPageData_PrefixedAlternatePath(t *testing.T) {
+	p := NewPageData("/en/about", "about", "en", nil, nil, nil)
+	p.contentPath = "/about"
+	p.defaultLocale = "en"
+
+	// Even for default locale, returns prefixed path.
+	if got := p.PrefixedAlternatePath("en"); got != "/en/about" {
+		t.Errorf("PrefixedAlternatePath('en') = %q, want /en/about", got)
+	}
+	if got := p.PrefixedAlternatePath("nl"); got != "/nl/about" {
+		t.Errorf("PrefixedAlternatePath('nl') = %q, want /nl/about", got)
+	}
+}
+
+func TestPageData_PrefixedAlternatePath_RootPage(t *testing.T) {
+	p := NewPageData("/en", "home", "en", nil, nil, nil)
+	p.contentPath = "/"
+	p.defaultLocale = "en"
+
+	if got := p.PrefixedAlternatePath("en"); got != "/en" {
+		t.Errorf("PrefixedAlternatePath('en') = %q, want /en", got)
+	}
+	if got := p.PrefixedAlternatePath("nl"); got != "/nl" {
+		t.Errorf("PrefixedAlternatePath('nl') = %q, want /nl", got)
+	}
+}
+
+func TestPageData_LocaleHref(t *testing.T) {
+	p := NewPageData("/en/about", "about", "en", nil, nil, nil)
+	p.localePrefix = "/en"
+
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/features", "/en/features"},
+		{"/", "/en"},
+		{"/blog/my-post", "/en/blog/my-post"},
+		{"https://example.com", "https://example.com"},
+		{"http://example.com", "http://example.com"},
+		{"//cdn.example.com/img.jpg", "//cdn.example.com/img.jpg"},
+		{"#section", "#section"},
+		{"mailto:test@example.com", "mailto:test@example.com"},
+		{"tel:+1234567890", "tel:+1234567890"},
+		{"", ""},
+		{"relative/path", "relative/path"},
+	}
+	for _, tt := range tests {
+		if got := p.LocaleHref(tt.input); got != tt.want {
+			t.Errorf("LocaleHref(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestPageData_LocaleHref_NoPrefix(t *testing.T) {
+	p := NewPageData("/about", "about", "en", nil, nil, nil)
+	// No localePrefix set — links should be unchanged.
+	if got := p.LocaleHref("/features"); got != "/features" {
+		t.Errorf("LocaleHref('/features') = %q, want /features", got)
+	}
+}
+
+func TestPrefixInternalHref(t *testing.T) {
+	tests := []struct {
+		href   string
+		prefix string
+		want   string
+	}{
+		{"/about", "/en", "/en/about"},
+		{"/about", "/nl", "/nl/about"},
+		{"/about", "", "/about"},
+		{"/", "/en", "/en"},
+		{"", "/en", ""},
+		{"https://example.com", "/en", "https://example.com"},
+		{"http://example.com", "/en", "http://example.com"},
+		{"//cdn.test/img.jpg", "/en", "//cdn.test/img.jpg"},
+		{"#anchor", "/en", "#anchor"},
+		{"mailto:a@b.com", "/en", "mailto:a@b.com"},
+		{"tel:+123", "/en", "tel:+123"},
+		{"relative", "/en", "relative"},
+	}
+	for _, tt := range tests {
+		got := prefixInternalHref(tt.href, tt.prefix)
+		if got != tt.want {
+			t.Errorf("prefixInternalHref(%q, %q) = %q, want %q", tt.href, tt.prefix, got, tt.want)
+		}
+	}
+}
+
+func TestPageData_URLOr_AutoPrefixes(t *testing.T) {
+	p := NewPageData("/en/about", "about", "en", map[string]any{
+		"nav_link": map[string]any{"href": "/features", "text": "Features"},
+	}, nil, nil)
+	p.localePrefix = "/en"
+
+	// CMS value present — should be prefixed.
+	if got := p.URLOr("nav_link", "/fallback"); got != "/en/features" {
+		t.Errorf("URLOr('nav_link') = %q, want /en/features", got)
+	}
+
+	// Fallback used — should also be prefixed.
+	if got := p.URLOr("missing", "/pricing"); got != "/en/pricing" {
+		t.Errorf("URLOr('missing') = %q, want /en/pricing", got)
+	}
+}
+
+func TestPageData_URLOr_NoPrefix(t *testing.T) {
+	p := NewPageData("/about", "about", "en", map[string]any{
+		"link": map[string]any{"href": "/features", "text": "Features"},
+	}, nil, nil)
+	// No localePrefix — should return as-is.
+	if got := p.URLOr("link", "/fallback"); got != "/features" {
+		t.Errorf("URLOr('link') = %q, want /features", got)
+	}
+}
+
+func TestPageData_URLOr_ExternalURL_NotPrefixed(t *testing.T) {
+	p := NewPageData("/en/about", "about", "en", map[string]any{
+		"ext_link": map[string]any{"href": "https://example.com", "text": "External"},
+	}, nil, nil)
+	p.localePrefix = "/en"
+
+	if got := p.URLOr("ext_link", "https://fallback.com"); got != "https://example.com" {
+		t.Errorf("URLOr('ext_link') = %q, want https://example.com", got)
+	}
+}
+
+func TestPageData_URLValueOr_AutoPrefixes(t *testing.T) {
+	p := NewPageData("/en/about", "about", "en", map[string]any{
+		"cta": map[string]any{"href": "/signup", "text": "Sign Up", "target": "_self"},
+	}, nil, nil)
+	p.localePrefix = "/en"
+
+	v := p.URLValueOr("cta", "/fallback", "Fallback")
+	if v.Href != "/en/signup" {
+		t.Errorf("URLValueOr('cta').Href = %q, want /en/signup", v.Href)
+	}
+	if v.Text != "Sign Up" {
+		t.Errorf("URLValueOr('cta').Text = %q, want Sign Up", v.Text)
+	}
+}
+
+func TestPageData_URLValueOr_FallbackPrefixed(t *testing.T) {
+	p := NewPageData("/en/about", "about", "en", nil, nil, nil)
+	p.localePrefix = "/en"
+
+	v := p.URLValueOr("missing", "/pricing", "Pricing")
+	if v.Href != "/en/pricing" {
+		t.Errorf("URLValueOr('missing').Href = %q, want /en/pricing", v.Href)
+	}
+}
+
+func TestEntryData_URLOr_AutoPrefixes(t *testing.T) {
+	e := EntryData{
+		Fields:       map[string]any{"link": map[string]any{"href": "/details", "text": "Details"}},
+		localePrefix: "/nl",
+	}
+	if got := e.URLOr("link", "/fallback"); got != "/nl/details" {
+		t.Errorf("EntryData.URLOr('link') = %q, want /nl/details", got)
+	}
+}
+
+func TestEntryData_URLValueOr_AutoPrefixes(t *testing.T) {
+	e := EntryData{
+		Fields:       map[string]any{"cta": map[string]any{"href": "/buy", "text": "Buy Now"}},
+		localePrefix: "/fr",
+	}
+	v := e.URLValueOr("cta", "/fallback", "Fallback")
+	if v.Href != "/fr/buy" {
+		t.Errorf("EntryData.URLValueOr('cta').Href = %q, want /fr/buy", v.Href)
+	}
+}
+
+func TestSetEntryLocalePrefix(t *testing.T) {
+	entries := map[string][]EntryData{
+		"features": {
+			{
+				Fields: map[string]any{"link": "/test"},
+				Subcollections: map[string][]EntryData{
+					"nested": {{Fields: map[string]any{}}},
+				},
+			},
+		},
+	}
+
+	setEntryLocalePrefix(entries, "/nl")
+
+	if entries["features"][0].localePrefix != "/nl" {
+		t.Error("top-level entry localePrefix not set")
+	}
+	if entries["features"][0].Subcollections["nested"][0].localePrefix != "/nl" {
+		t.Error("nested entry localePrefix not set")
+	}
+}

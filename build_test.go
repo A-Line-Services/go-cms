@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/a-h/templ"
 )
 
 // jsonVal marshals a value to json.RawMessage for test API responses.
@@ -1213,5 +1216,1072 @@ func TestBuild_DownloadMedia_False_KeepsRemoteURLs(t *testing.T) {
 	// Media dir should NOT exist.
 	if _, err := os.Stat(filepath.Join(outDir, "media")); !os.IsNotExist(err) {
 		t.Error("media dir should not exist when DownloadMedia=false")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Multi-locale build tests
+// ---------------------------------------------------------------------------
+
+// multiLocaleCMS creates a mock CMS that serves two locales (en default, nl)
+// with locale-specific content for /, /about, and optionally collection entries.
+func multiLocaleCMS(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		locale := r.URL.Query().Get("locale")
+		if locale == "" {
+			locale = "en"
+		}
+
+		switch {
+		case r.URL.Path == "/api/v1/test/locales":
+			json.NewEncoder(w).Encode([]apiLocaleResponse{
+				{Locale: "en", Label: "English", IsDefault: true},
+				{Locale: "nl", Label: "Nederlands", IsDefault: false},
+			})
+		case r.URL.Path == "/api/v1/test/pages" && r.URL.RawQuery == "":
+			json.NewEncoder(w).Encode([]apiPageListItem{
+				{ID: "p1", Path: "/", Slug: "home", TemplateID: "t1"},
+				{ID: "p2", Path: "/about", Slug: "about", TemplateID: "t1"},
+			})
+		case r.URL.Path == "/api/v1/test/pages/" || r.URL.Path == "/api/v1/test/pages//":
+			title := "Hello"
+			if locale == "nl" {
+				title = "Hallo"
+			}
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/", Slug: "home",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: locale, Value: jsonVal(title)},
+				},
+			})
+		case r.URL.Path == "/api/v1/test/pages/about":
+			title := "About Us"
+			if locale == "nl" {
+				title = "Over Ons"
+			}
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/about", Slug: "about",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: locale, Value: jsonVal(title)},
+				},
+			})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+}
+
+func TestBuild_MultiLocale_CreatesPrefixedPaths(t *testing.T) {
+	srv := multiLocaleCMS(t)
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string {
+		return "<html lang=" + p.Locale + "><body>" + p.Text("title") + "</body></html>"
+	}))
+	app.Page("/about", testRender(func(p PageData) string {
+		return "<html lang=" + p.Locale + "><body>" + p.Text("title") + "</body></html>"
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// EN prefixed paths.
+	enHome, err := os.ReadFile(filepath.Join(outDir, "en", "index.html"))
+	if err != nil {
+		t.Fatal("en/index.html missing:", err)
+	}
+	if !strings.Contains(string(enHome), "Hello") {
+		t.Errorf("en/index.html should contain English content, got: %s", enHome)
+	}
+
+	enAbout, err := os.ReadFile(filepath.Join(outDir, "en", "about", "index.html"))
+	if err != nil {
+		t.Fatal("en/about/index.html missing:", err)
+	}
+	if !strings.Contains(string(enAbout), "About Us") {
+		t.Errorf("en/about/index.html should contain English content, got: %s", enAbout)
+	}
+
+	// NL prefixed paths.
+	nlHome, err := os.ReadFile(filepath.Join(outDir, "nl", "index.html"))
+	if err != nil {
+		t.Fatal("nl/index.html missing:", err)
+	}
+	if !strings.Contains(string(nlHome), "Hallo") {
+		t.Errorf("nl/index.html should contain Dutch content, got: %s", nlHome)
+	}
+
+	nlAbout, err := os.ReadFile(filepath.Join(outDir, "nl", "about", "index.html"))
+	if err != nil {
+		t.Fatal("nl/about/index.html missing:", err)
+	}
+	if !strings.Contains(string(nlAbout), "Over Ons") {
+		t.Errorf("nl/about/index.html should contain Dutch content, got: %s", nlAbout)
+	}
+}
+
+func TestBuild_MultiLocale_DefaultLocaleAlsoAtRoot(t *testing.T) {
+	srv := multiLocaleCMS(t)
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string { return p.Text("title") }))
+	app.Page("/about", testRender(func(p PageData) string { return p.Text("title") }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Root paths should exist with English content (default locale).
+	rootHome, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatal("index.html missing:", err)
+	}
+	if string(rootHome) != "Hello" {
+		t.Errorf("root index.html = %q, want Hello", rootHome)
+	}
+
+	rootAbout, err := os.ReadFile(filepath.Join(outDir, "about", "index.html"))
+	if err != nil {
+		t.Fatal("about/index.html missing:", err)
+	}
+	if string(rootAbout) != "About Us" {
+		t.Errorf("root about/index.html = %q, want About Us", rootAbout)
+	}
+
+	// NL should NOT have root paths.
+	if _, err := os.Stat(filepath.Join(outDir, "over-ons")); !os.IsNotExist(err) {
+		t.Error("Dutch content should only be at /nl/, not at root")
+	}
+}
+
+func TestBuild_MultiLocale_PageDataHasLocaleMetadata(t *testing.T) {
+	srv := multiLocaleCMS(t)
+	defer srv.Close()
+
+	var capturedPages []PageData
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string {
+		capturedPages = append(capturedPages, p)
+		return "ok"
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have 4 renders: en prefixed, en root, nl prefixed
+	// Actually: en prefixed + en root + nl prefixed = 3 for the / page
+	// (template files are rendered separately and use default locale)
+	if len(capturedPages) < 3 {
+		t.Fatalf("expected at least 3 page renders for /, got %d", len(capturedPages))
+	}
+
+	// Find the prefixed EN render.
+	var enPrefixed *PageData
+	for i := range capturedPages {
+		if capturedPages[i].Path == "/en" && capturedPages[i].Locale == "en" {
+			enPrefixed = &capturedPages[i]
+			break
+		}
+	}
+	if enPrefixed == nil {
+		t.Fatal("no /en page render found")
+	}
+
+	if enPrefixed.LocalePrefix() != "/en" {
+		t.Errorf("LocalePrefix() = %q, want /en", enPrefixed.LocalePrefix())
+	}
+	if enPrefixed.ContentPath() != "/" {
+		t.Errorf("ContentPath() = %q, want /", enPrefixed.ContentPath())
+	}
+	if len(enPrefixed.Locales) != 2 {
+		t.Errorf("Locales has %d entries, want 2", len(enPrefixed.Locales))
+	}
+	if !enPrefixed.IsDefaultLocale() {
+		t.Error("IsDefaultLocale() should be true for en")
+	}
+
+	// Find the NL render.
+	var nlPrefixed *PageData
+	for i := range capturedPages {
+		if capturedPages[i].Path == "/nl" && capturedPages[i].Locale == "nl" {
+			nlPrefixed = &capturedPages[i]
+			break
+		}
+	}
+	if nlPrefixed == nil {
+		t.Fatal("no /nl page render found")
+	}
+
+	if nlPrefixed.LocalePrefix() != "/nl" {
+		t.Errorf("NL LocalePrefix() = %q, want /nl", nlPrefixed.LocalePrefix())
+	}
+	if nlPrefixed.IsDefaultLocale() {
+		t.Error("NL IsDefaultLocale() should be false")
+	}
+
+	// Find root EN render (no prefix).
+	var enRoot *PageData
+	for i := range capturedPages {
+		if capturedPages[i].Path == "/" && capturedPages[i].Locale == "en" && capturedPages[i].localePrefix == "" {
+			enRoot = &capturedPages[i]
+			break
+		}
+	}
+	if enRoot == nil {
+		t.Fatal("no root / page render found")
+	}
+	if enRoot.LocalePrefix() != "" {
+		t.Errorf("Root LocalePrefix() = %q, want empty", enRoot.LocalePrefix())
+	}
+}
+
+func TestBuild_SingleLocale_NoPrefix(t *testing.T) {
+	// Single locale CMS: should behave exactly as before (no prefixed paths).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/locales":
+			json.NewEncoder(w).Encode([]apiLocaleResponse{
+				{Locale: "en", Label: "English", IsDefault: true},
+			})
+		case r.URL.Path == "/api/v1/test/pages" && r.URL.RawQuery == "":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		case r.URL.Path == "/api/v1/test/pages/about":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/about", Slug: "about",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: "en", Value: jsonVal("About")},
+				},
+			})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/about", testRender(func(p PageData) string { return p.Text("title") }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have about/index.html (no prefix).
+	content, err := os.ReadFile(filepath.Join(outDir, "about", "index.html"))
+	if err != nil {
+		t.Fatal("about/index.html missing:", err)
+	}
+	if string(content) != "About" {
+		t.Errorf("about/index.html = %q, want About", content)
+	}
+
+	// Should NOT have en/about/index.html.
+	if _, err := os.Stat(filepath.Join(outDir, "en", "about", "index.html")); !os.IsNotExist(err) {
+		t.Error("single locale should not create prefixed paths")
+	}
+}
+
+func TestBuild_LocalesAPIFailure_FallsBackToSingleLocale(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/locales":
+			w.WriteHeader(500) // Simulate API failure
+		case r.URL.Path == "/api/v1/test/pages" && r.URL.RawQuery == "":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		case r.URL.Path == "/api/v1/test/pages/about":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/about", Slug: "about",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: "en", Value: jsonVal("About")},
+				},
+			})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/about", testRender(func(p PageData) string { return p.Text("title") }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should fallback to single-locale behavior.
+	content, err := os.ReadFile(filepath.Join(outDir, "about", "index.html"))
+	if err != nil {
+		t.Fatal("about/index.html missing:", err)
+	}
+	if string(content) != "About" {
+		t.Errorf("about/index.html = %q, want About", content)
+	}
+}
+
+func TestBuild_MultiLocale_CollectionEntries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		locale := r.URL.Query().Get("locale")
+		if locale == "" {
+			locale = "en"
+		}
+		switch {
+		case r.URL.Path == "/api/v1/test/locales":
+			json.NewEncoder(w).Encode([]apiLocaleResponse{
+				{Locale: "en", Label: "English", IsDefault: true},
+				{Locale: "nl", Label: "Nederlands", IsDefault: false},
+			})
+		case r.URL.Path == "/api/v1/test/pages" && r.URL.RawQuery == "":
+			json.NewEncoder(w).Encode([]apiPageListItem{
+				{ID: "p1", Path: "/blog/hello", Slug: "hello", TemplateID: "t1"},
+			})
+		case r.URL.Path == "/api/v1/test/pages/blog/hello":
+			title := "Hello World"
+			if locale == "nl" {
+				title = "Hallo Wereld"
+			}
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/blog/hello", Slug: "hello",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: locale, Value: jsonVal(title)},
+				},
+			})
+		case r.URL.Path == "/api/v1/test/pages/blog":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/blog", Slug: "blog",
+			})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Collection("/blog", "Blog",
+		testRender(func(p PageData) string {
+			var titles []string
+			for _, post := range p.Listing("blog") {
+				titles = append(titles, post.Path+":"+post.Text("title"))
+			}
+			return strings.Join(titles, ",")
+		}),
+		testRender(func(p PageData) string { return p.Text("title") }),
+	)
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// EN blog entry.
+	enEntry, err := os.ReadFile(filepath.Join(outDir, "en", "blog", "hello", "index.html"))
+	if err != nil {
+		t.Fatal("en/blog/hello/index.html missing:", err)
+	}
+	if string(enEntry) != "Hello World" {
+		t.Errorf("en blog entry = %q", enEntry)
+	}
+
+	// NL blog entry.
+	nlEntry, err := os.ReadFile(filepath.Join(outDir, "nl", "blog", "hello", "index.html"))
+	if err != nil {
+		t.Fatal("nl/blog/hello/index.html missing:", err)
+	}
+	if string(nlEntry) != "Hallo Wereld" {
+		t.Errorf("nl blog entry = %q", nlEntry)
+	}
+
+	// EN listing should have EN-prefixed paths.
+	enListing, err := os.ReadFile(filepath.Join(outDir, "en", "blog", "index.html"))
+	if err != nil {
+		t.Fatal("en/blog/index.html missing:", err)
+	}
+	if !strings.Contains(string(enListing), "/en/blog/hello:Hello World") {
+		t.Errorf("en listing = %q, want /en/blog/hello:Hello World", enListing)
+	}
+
+	// NL listing should have NL-prefixed paths.
+	nlListing, err := os.ReadFile(filepath.Join(outDir, "nl", "blog", "index.html"))
+	if err != nil {
+		t.Fatal("nl/blog/index.html missing:", err)
+	}
+	if !strings.Contains(string(nlListing), "/nl/blog/hello:Hallo Wereld") {
+		t.Errorf("nl listing = %q, want /nl/blog/hello:Hallo Wereld", nlListing)
+	}
+
+	// Root listing (default locale) should have unprefixed paths.
+	rootListing, err := os.ReadFile(filepath.Join(outDir, "blog", "index.html"))
+	if err != nil {
+		t.Fatal("blog/index.html missing:", err)
+	}
+	if !strings.Contains(string(rootListing), "/blog/hello:Hello World") {
+		t.Errorf("root listing = %q, want /blog/hello:Hello World", rootListing)
+	}
+}
+
+func TestBuild_MultiLocale_URLAutoPrefixing(t *testing.T) {
+	srv := multiLocaleCMS(t)
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string {
+		return p.URLOr("nav", "/features")
+	}))
+	app.Page("/about", testRender(func(p PageData) string { return "ok" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// EN prefixed: internal links should be prefixed.
+	enHome, _ := os.ReadFile(filepath.Join(outDir, "en", "index.html"))
+	if string(enHome) != "/en/features" {
+		t.Errorf("en/index.html = %q, want /en/features", enHome)
+	}
+
+	// NL prefixed: internal links should use /nl prefix.
+	nlHome, _ := os.ReadFile(filepath.Join(outDir, "nl", "index.html"))
+	if string(nlHome) != "/nl/features" {
+		t.Errorf("nl/index.html = %q, want /nl/features", nlHome)
+	}
+
+	// Root (default): internal links should have no prefix.
+	rootHome, _ := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if string(rootHome) != "/features" {
+		t.Errorf("root index.html = %q, want /features", rootHome)
+	}
+}
+
+func TestBuild_MultiLocale_HreflangInOutput(t *testing.T) {
+	srv := multiLocaleCMS(t)
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string {
+		// Simulate what SEOHead would produce for hreflang.
+		var links string
+		if len(p.Locales) > 1 {
+			for _, loc := range p.Locales {
+				links += fmt.Sprintf(`<link rel="alternate" hreflang="%s" href="%s"/>`, loc.Code, p.PrefixedAlternatePath(loc.Code))
+			}
+			links += fmt.Sprintf(`<link rel="alternate" hreflang="x-default" href="%s"/>`, p.ContentPath())
+		}
+		return "<head>" + links + "</head>"
+	}))
+	app.Page("/about", testRender(func(p PageData) string { return "ok" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	enHome, _ := os.ReadFile(filepath.Join(outDir, "en", "index.html"))
+	html := string(enHome)
+
+	if !strings.Contains(html, `hreflang="en" href="/en"`) {
+		t.Errorf("missing en hreflang in: %s", html)
+	}
+	if !strings.Contains(html, `hreflang="nl" href="/nl"`) {
+		t.Errorf("missing nl hreflang in: %s", html)
+	}
+	if !strings.Contains(html, `hreflang="x-default" href="/"`) {
+		t.Errorf("missing x-default hreflang in: %s", html)
+	}
+
+	// Root page should also have hreflang tags.
+	rootHome, _ := os.ReadFile(filepath.Join(outDir, "index.html"))
+	rootHTML := string(rootHome)
+	if !strings.Contains(rootHTML, `hreflang="en" href="/en"`) {
+		t.Errorf("root page missing en hreflang in: %s", rootHTML)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Layout fragment & route manifest build tests
+// ---------------------------------------------------------------------------
+
+// testLayout creates a LayoutFunc that wraps content in identifiable markers.
+// Duplicated from app_test.go for use in build tests.
+func testLayoutBuild(id string) LayoutFunc {
+	return func(p PageData, body templ.Component) templ.Component {
+		return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+			io.WriteString(w, "<"+id+`-layout data-layout="`+id+`">`)
+			if err := body.Render(ctx, w); err != nil {
+				return err
+			}
+			io.WriteString(w, "</"+id+"-layout>")
+			return nil
+		})
+	}
+}
+
+func TestPathToFragmentFile_Root(t *testing.T) {
+	got := pathToFragmentFile("/out", "/", "root")
+	want := filepath.Join("/out", "_root.html")
+	if got != want {
+		t.Errorf("pathToFragmentFile('/', 'root') = %q, want %q", got, want)
+	}
+}
+
+func TestPathToFragmentFile_Nested(t *testing.T) {
+	got := pathToFragmentFile("/out", "/about", "root")
+	want := filepath.Join("/out", "about", "_root.html")
+	if got != want {
+		t.Errorf("pathToFragmentFile('/about', 'root') = %q, want %q", got, want)
+	}
+}
+
+func TestPathToFragmentFile_DeepNested(t *testing.T) {
+	got := pathToFragmentFile("/out", "/blog/my-post", "blog")
+	want := filepath.Join("/out", "blog", "my-post", "_blog.html")
+	if got != want {
+		t.Errorf("pathToFragmentFile('/blog/my-post', 'blog') = %q, want %q", got, want)
+	}
+}
+
+func TestBuild_WithLayouts_GeneratesFragments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		case r.URL.Path == "/api/v1/test/pages/" || r.URL.Path == "/api/v1/test/pages//":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/", Slug: "home",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: "en", Value: jsonVal("Home")},
+				},
+			})
+		case r.URL.Path == "/api/v1/test/seo/" || r.URL.Path == "/api/v1/test/seo//":
+			json.NewEncoder(w).Encode(apiSEOResponse{MetaTitle: "Home Page"})
+		case r.URL.Path == "/api/v1/test/pages/about":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/about", Slug: "about",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: "en", Value: jsonVal("About")},
+				},
+			})
+		case r.URL.Path == "/api/v1/test/seo/about":
+			json.NewEncoder(w).Encode(apiSEOResponse{MetaTitle: "About Us"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Page("/", testRender(func(p PageData) string { return "<h1>" + p.Text("title") + "</h1>" }))
+	app.Page("/about", testRender(func(p PageData) string { return "<h1>" + p.Text("title") + "</h1>" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Full HTML files should exist with layout wrapping.
+	homeHTML, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(homeHTML), `<root-layout data-layout="root">`) {
+		t.Errorf("index.html should contain layout wrapping, got: %q", homeHTML)
+	}
+	if !strings.Contains(string(homeHTML), "<h1>Home</h1>") {
+		t.Errorf("index.html should contain content, got: %q", homeHTML)
+	}
+
+	// Fragment files should exist.
+	homeFrag, err := os.ReadFile(filepath.Join(outDir, "_root.html"))
+	if err != nil {
+		t.Fatal("_root.html fragment missing:", err)
+	}
+	fragStr := string(homeFrag)
+	// Fragment should contain route metadata.
+	if !strings.Contains(fragStr, "<!--route:") {
+		t.Errorf("fragment should contain route metadata, got: %q", fragStr)
+	}
+	// Fragment should contain the content but NOT the layout wrapping.
+	if strings.Contains(fragStr, "<root-layout") {
+		t.Errorf("root fragment should NOT contain root layout wrapping, got: %q", fragStr)
+	}
+	if !strings.Contains(fragStr, "<h1>Home</h1>") {
+		t.Errorf("fragment should contain page content, got: %q", fragStr)
+	}
+
+	// About page fragment.
+	aboutFrag, err := os.ReadFile(filepath.Join(outDir, "about", "_root.html"))
+	if err != nil {
+		t.Fatal("about/_root.html fragment missing:", err)
+	}
+	if !strings.Contains(string(aboutFrag), "<h1>About</h1>") {
+		t.Errorf("about fragment should contain content, got: %q", aboutFrag)
+	}
+}
+
+func TestBuild_WithLayouts_NestedFragments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{
+				{ID: "p1", Path: "/blog/post", Slug: "post", TemplateID: "t1"},
+			})
+		case r.URL.Path == "/api/v1/test/pages/blog":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/blog", Slug: "blog",
+			})
+		case r.URL.Path == "/api/v1/test/pages/blog/post":
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/blog/post", Slug: "post",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: "en", Value: jsonVal("My Post")},
+				},
+			})
+		case r.URL.Path == "/api/v1/test/seo/blog/post":
+			json.NewEncoder(w).Encode(apiSEOResponse{MetaTitle: "My Post"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Layout("/blog", "blog", testLayoutBuild("blog"))
+	app.Collection("/blog", "Blog",
+		testRender(func(p PageData) string { return "listing" }),
+		testRender(func(p PageData) string { return "entry:" + p.Text("title") }),
+	)
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Blog entry should have both _root.html and _blog.html fragments.
+	rootFrag, err := os.ReadFile(filepath.Join(outDir, "blog", "post", "_root.html"))
+	if err != nil {
+		t.Fatal("blog/post/_root.html missing:", err)
+	}
+	rootFragStr := string(rootFrag)
+	// Root fragment should contain blog layout wrapping entry content.
+	if !strings.Contains(rootFragStr, `<blog-layout data-layout="blog">`) {
+		t.Errorf("root fragment should contain blog layout, got: %q", rootFragStr)
+	}
+	if !strings.Contains(rootFragStr, "entry:My Post") {
+		t.Errorf("root fragment should contain entry content, got: %q", rootFragStr)
+	}
+
+	blogFrag, err := os.ReadFile(filepath.Join(outDir, "blog", "post", "_blog.html"))
+	if err != nil {
+		t.Fatal("blog/post/_blog.html missing:", err)
+	}
+	blogFragStr := string(blogFrag)
+	// Blog fragment should contain just the entry content, no layout wrapping.
+	if strings.Contains(blogFragStr, "<blog-layout") {
+		t.Errorf("blog fragment should NOT contain blog layout, got: %q", blogFragStr)
+	}
+	if strings.Contains(blogFragStr, "<root-layout") {
+		t.Errorf("blog fragment should NOT contain root layout, got: %q", blogFragStr)
+	}
+	if !strings.Contains(blogFragStr, "entry:My Post") {
+		t.Errorf("blog fragment should contain entry content, got: %q", blogFragStr)
+	}
+}
+
+func TestBuild_WithLayouts_FragmentMetadata(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		case r.URL.Path == "/api/v1/test/pages/" || r.URL.Path == "/api/v1/test/pages//":
+			json.NewEncoder(w).Encode(apiPageResponse{Path: "/", Slug: "home"})
+		case r.URL.Path == "/api/v1/test/seo/" || r.URL.Path == "/api/v1/test/seo//":
+			json.NewEncoder(w).Encode(apiSEOResponse{MetaTitle: "Welcome Home"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Page("/", testRender(func(p PageData) string { return "home" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frag, err := os.ReadFile(filepath.Join(outDir, "_root.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fragStr := string(frag)
+
+	// Should contain route metadata with title from SEO.
+	if !strings.Contains(fragStr, `<!--route:{"t":"Welcome Home"}-->`) {
+		t.Errorf("fragment should contain route metadata with SEO title, got: %q", fragStr)
+	}
+}
+
+func TestBuild_WithLayouts_FragmentMetadata_FallsBackToSlug(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		case r.URL.Path == "/api/v1/test/pages/about":
+			json.NewEncoder(w).Encode(apiPageResponse{Path: "/about", Slug: "about"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Page("/about", testRender(func(p PageData) string { return "about" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frag, err := os.ReadFile(filepath.Join(outDir, "about", "_root.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No SEO title → should fall back to slug.
+	if !strings.Contains(string(frag), `<!--route:{"t":"about"}-->`) {
+		t.Errorf("fragment should fall back to slug for title, got: %q", frag)
+	}
+}
+
+func TestBuild_WithLayouts_WritesRouteManifest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Layout("/blog", "blog", testLayoutBuild("blog"))
+	app.Page("/", testRender(func(p PageData) string { return "home" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// _routes.json should exist.
+	data, err := os.ReadFile(filepath.Join(outDir, "_routes.json"))
+	if err != nil {
+		t.Fatal("_routes.json missing:", err)
+	}
+
+	var manifest struct {
+		Layouts map[string]string `json:"layouts"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal("invalid JSON:", err)
+	}
+
+	if manifest.Layouts["/"] != "root" {
+		t.Errorf("layouts['/'] = %q, want 'root'", manifest.Layouts["/"])
+	}
+	if manifest.Layouts["/blog"] != "blog" {
+		t.Errorf("layouts['/blog'] = %q, want 'blog'", manifest.Layouts["/blog"])
+	}
+}
+
+func TestBuild_NoLayouts_NoRouteManifest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	// No layouts registered.
+	app.Page("/", testRender(func(p PageData) string { return "home" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// _routes.json should NOT exist.
+	if _, err := os.Stat(filepath.Join(outDir, "_routes.json")); !os.IsNotExist(err) {
+		t.Error("_routes.json should not exist when no layouts registered")
+	}
+}
+
+func TestBuild_NoLayouts_NoFragments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string { return "home" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No fragment files should exist.
+	if _, err := os.Stat(filepath.Join(outDir, "_root.html")); !os.IsNotExist(err) {
+		t.Error("fragment files should not exist when no layouts registered")
+	}
+}
+
+func TestBuild_WithLayouts_CMSAttributesStrippedInFragments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Page("/", testRender(func(p PageData) string {
+		return `<h1 data-cms-field="title" data-cms-type="text">Welcome</h1>`
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frag, err := os.ReadFile(filepath.Join(outDir, "_root.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fragStr := string(frag)
+
+	// CMS attributes should be stripped from fragments.
+	if strings.Contains(fragStr, "data-cms-") {
+		t.Errorf("fragment should not contain data-cms-* attributes, got: %q", fragStr)
+	}
+	// But data-layout is NOT a CMS attribute and should survive.
+	if !strings.Contains(fragStr, "<h1>Welcome</h1>") {
+		t.Errorf("fragment should contain clean content, got: %q", fragStr)
+	}
+}
+
+func TestBuild_WithLayouts_DataLayoutSurvivesStripping(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Page("/", testRender(func(p PageData) string { return "content" }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	html, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// data-layout is NOT a CMS attribute — should survive stripping.
+	if !strings.Contains(string(html), `data-layout="root"`) {
+		t.Errorf("data-layout should survive stripCMSAttributes, got: %q", html)
+	}
+}
+
+func TestBuild_WithLayouts_PageDataHasLayoutManifest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	var capturedManifests []map[string]string
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Layout("/blog", "blog", testLayoutBuild("blog"))
+	app.Page("/", testRender(func(p PageData) string {
+		capturedManifests = append(capturedManifests, p.LayoutManifest())
+		return "home"
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The render func is called multiple times (build + template file).
+	// At least one invocation should have the layout manifest set.
+	var found bool
+	for _, m := range capturedManifests {
+		if m != nil && m["/"] == "root" && m["/blog"] == "blog" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected at least one render with layout manifest set, got: %v", capturedManifests)
+	}
+}
+
+func TestBuild_MultiLocale_WithLayouts_GeneratesFragments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		locale := r.URL.Query().Get("locale")
+		if locale == "" {
+			locale = "en"
+		}
+		switch {
+		case r.URL.Path == "/api/v1/test/locales":
+			json.NewEncoder(w).Encode([]apiLocaleResponse{
+				{Locale: "en", Label: "English", IsDefault: true},
+				{Locale: "nl", Label: "Nederlands", IsDefault: false},
+			})
+		case r.URL.Path == "/api/v1/test/pages" && r.URL.RawQuery == "":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		case r.URL.Path == "/api/v1/test/pages/about":
+			title := "About"
+			if locale == "nl" {
+				title = "Over"
+			}
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/about", Slug: "about",
+				Fields: []apiFieldValue{
+					{Key: "title", Locale: locale, Value: jsonVal(title)},
+				},
+			})
+		case r.URL.Path == "/api/v1/test/seo/about":
+			json.NewEncoder(w).Encode(apiSEOResponse{MetaTitle: "About"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Layout("/", "root", testLayoutBuild("root"))
+	app.Page("/about", testRender(func(p PageData) string { return p.Text("title") }))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// EN prefixed fragment.
+	enFrag, err := os.ReadFile(filepath.Join(outDir, "en", "about", "_root.html"))
+	if err != nil {
+		t.Fatal("en/about/_root.html missing:", err)
+	}
+	if !strings.Contains(string(enFrag), "About") {
+		t.Errorf("EN fragment should contain 'About', got: %q", enFrag)
+	}
+
+	// NL prefixed fragment.
+	nlFrag, err := os.ReadFile(filepath.Join(outDir, "nl", "about", "_root.html"))
+	if err != nil {
+		t.Fatal("nl/about/_root.html missing:", err)
+	}
+	if !strings.Contains(string(nlFrag), "Over") {
+		t.Errorf("NL fragment should contain 'Over', got: %q", nlFrag)
+	}
+
+	// Root (default locale) fragment.
+	rootFrag, err := os.ReadFile(filepath.Join(outDir, "about", "_root.html"))
+	if err != nil {
+		t.Fatal("about/_root.html missing:", err)
+	}
+	if !strings.Contains(string(rootFrag), "About") {
+		t.Errorf("Root fragment should contain 'About', got: %q", rootFrag)
+	}
+
+	// Route manifest should exist.
+	manifest, err := os.ReadFile(filepath.Join(outDir, "_routes.json"))
+	if err != nil {
+		t.Fatal("_routes.json missing:", err)
+	}
+	if !strings.Contains(string(manifest), `"root"`) {
+		t.Errorf("manifest missing 'root': %q", manifest)
+	}
+}
+
+func TestLocalePrefixPath(t *testing.T) {
+	tests := []struct {
+		prefix string
+		path   string
+		want   string
+	}{
+		{"/en", "/", "/en"},
+		{"/en", "/about", "/en/about"},
+		{"/nl", "/blog/post", "/nl/blog/post"},
+		{"/fr", "/a/b/c", "/fr/a/b/c"},
+	}
+	for _, tt := range tests {
+		got := localePrefixPath(tt.prefix, tt.path)
+		if got != tt.want {
+			t.Errorf("localePrefixPath(%q, %q) = %q, want %q", tt.prefix, tt.path, got, tt.want)
+		}
 	}
 }

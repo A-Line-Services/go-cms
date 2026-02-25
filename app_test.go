@@ -1,11 +1,15 @@
 package cms
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/a-h/templ"
 )
 
 func TestNewApp_CreatesConfiguredApp(t *testing.T) {
@@ -613,5 +617,419 @@ func TestScanRoutes_NonexistentDir(t *testing.T) {
 	_, err := ScanRoutes("/tmp/nonexistent-dir-that-should-not-exist")
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Layout tests — helper
+// ---------------------------------------------------------------------------
+
+// testLayout creates a LayoutFunc that wraps content in identifiable markers.
+// e.g. testLayout("root") wraps content as: <root-layout>...content...</root-layout>
+func testLayout(id string) LayoutFunc {
+	return func(p PageData, body templ.Component) templ.Component {
+		return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+			io.WriteString(w, "<"+id+`-layout data-layout="`+id+`">`)
+			if err := body.Render(ctx, w); err != nil {
+				return err
+			}
+			io.WriteString(w, "</"+id+"-layout>")
+			return nil
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Layout registration tests
+// ---------------------------------------------------------------------------
+
+func TestApp_Layout_RegistersLayout(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/blog", "blog", testLayout("blog"))
+
+	if len(app.layouts) != 2 {
+		t.Fatalf("expected 2 layouts, got %d", len(app.layouts))
+	}
+	if app.layouts[0].pathPrefix != "/" || app.layouts[0].id != "root" {
+		t.Errorf("layout[0] = {prefix: %q, id: %q}", app.layouts[0].pathPrefix, app.layouts[0].id)
+	}
+	if app.layouts[1].pathPrefix != "/blog" || app.layouts[1].id != "blog" {
+		t.Errorf("layout[1] = {prefix: %q, id: %q}", app.layouts[1].pathPrefix, app.layouts[1].id)
+	}
+}
+
+func TestApp_HasLayouts_True(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	if !app.hasLayouts() {
+		t.Error("hasLayouts() should be true after registering a layout")
+	}
+}
+
+func TestApp_HasLayouts_False(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	if app.hasLayouts() {
+		t.Error("hasLayouts() should be false with no layouts registered")
+	}
+}
+
+func TestApp_LayoutManifest(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/blog", "blog", testLayout("blog"))
+
+	m := app.layoutManifest()
+	if len(m) != 2 {
+		t.Fatalf("manifest has %d entries, want 2", len(m))
+	}
+	if m["/"] != "root" {
+		t.Errorf("manifest['/'] = %q, want 'root'", m["/"])
+	}
+	if m["/blog"] != "blog" {
+		t.Errorf("manifest['/blog'] = %q, want 'blog'", m["/blog"])
+	}
+}
+
+func TestApp_LayoutManifest_NoLayouts(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	m := app.layoutManifest()
+	if m != nil {
+		t.Errorf("expected nil manifest, got %v", m)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Layout chain resolution tests
+// ---------------------------------------------------------------------------
+
+func TestApp_LayoutChain_RootOnly(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+
+	chain := app.layoutChain("/about")
+	if len(chain) != 1 {
+		t.Fatalf("chain length = %d, want 1", len(chain))
+	}
+	if chain[0].id != "root" {
+		t.Errorf("chain[0].id = %q, want 'root'", chain[0].id)
+	}
+}
+
+func TestApp_LayoutChain_NestedLayouts(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/blog", "blog", testLayout("blog"))
+	app.Layout("/", "root", testLayout("root"))
+
+	chain := app.layoutChain("/blog/my-post")
+	if len(chain) != 2 {
+		t.Fatalf("chain length = %d, want 2", len(chain))
+	}
+	// Outermost first.
+	if chain[0].id != "root" {
+		t.Errorf("chain[0].id = %q, want 'root'", chain[0].id)
+	}
+	if chain[1].id != "blog" {
+		t.Errorf("chain[1].id = %q, want 'blog'", chain[1].id)
+	}
+}
+
+func TestApp_LayoutChain_BlogIndex(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/blog", "blog", testLayout("blog"))
+
+	// /blog should match both / (root) and /blog (exact match).
+	chain := app.layoutChain("/blog")
+	if len(chain) != 2 {
+		t.Fatalf("chain length = %d, want 2", len(chain))
+	}
+	if chain[0].id != "root" || chain[1].id != "blog" {
+		t.Errorf("chain = [%s, %s], want [root, blog]", chain[0].id, chain[1].id)
+	}
+}
+
+func TestApp_LayoutChain_RootPage(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/blog", "blog", testLayout("blog"))
+
+	// Root page "/" should match only root layout.
+	chain := app.layoutChain("/")
+	if len(chain) != 1 {
+		t.Fatalf("chain length = %d, want 1", len(chain))
+	}
+	if chain[0].id != "root" {
+		t.Errorf("chain[0].id = %q, want 'root'", chain[0].id)
+	}
+}
+
+func TestApp_LayoutChain_UnmatchedPath(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/docs", "docs", testLayout("docs"))
+
+	// /about doesn't match /docs.
+	chain := app.layoutChain("/about")
+	if len(chain) != 0 {
+		t.Errorf("chain length = %d, want 0 (no matching layouts)", len(chain))
+	}
+}
+
+func TestApp_LayoutChain_ThreeLevels(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/docs", "docs", testLayout("docs"))
+	app.Layout("/docs/api", "api", testLayout("api"))
+
+	chain := app.layoutChain("/docs/api/endpoints")
+	if len(chain) != 3 {
+		t.Fatalf("chain length = %d, want 3", len(chain))
+	}
+	if chain[0].id != "root" || chain[1].id != "docs" || chain[2].id != "api" {
+		t.Errorf("chain = [%s, %s, %s], want [root, docs, api]", chain[0].id, chain[1].id, chain[2].id)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Layout composition tests
+// ---------------------------------------------------------------------------
+
+func TestApp_ComposeWithLayouts_SingleLayout(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Page("/about", testRender(func(p PageData) string { return "about-content" }))
+
+	data := NewPageData("/about", "about", "en", nil, nil, nil)
+	html := app.renderPage(data)
+
+	want := `<root-layout data-layout="root">about-content</root-layout>`
+	if html != want {
+		t.Errorf("renderPage =\n  %q\nwant:\n  %q", html, want)
+	}
+}
+
+func TestApp_ComposeWithLayouts_NestedLayouts(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/blog", "blog", testLayout("blog"))
+	app.Collection("/blog", "Blog",
+		testRender(func(p PageData) string { return "listing-content" }),
+		testRender(func(p PageData) string { return "entry-content" }),
+	)
+
+	// Blog entry: should be wrapped in both layouts — root > blog > content.
+	data := NewPageData("/blog/my-post", "my-post", "en", nil, nil, nil)
+	html := app.renderPage(data)
+
+	want := `<root-layout data-layout="root"><blog-layout data-layout="blog">entry-content</blog-layout></root-layout>`
+	if html != want {
+		t.Errorf("renderPage =\n  %q\nwant:\n  %q", html, want)
+	}
+}
+
+func TestApp_ComposeWithLayouts_BlogListing(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/blog", "blog", testLayout("blog"))
+	app.Collection("/blog", "Blog",
+		testRender(func(p PageData) string { return "listing" }),
+		testRender(func(p PageData) string { return "entry" }),
+	)
+
+	data := NewPageData("/blog", "blog", "en", nil, nil, nil)
+	html := app.renderPage(data)
+
+	want := `<root-layout data-layout="root"><blog-layout data-layout="blog">listing</blog-layout></root-layout>`
+	if html != want {
+		t.Errorf("renderPage =\n  %q\nwant:\n  %q", html, want)
+	}
+}
+
+func TestApp_ComposeWithLayouts_NoLayouts_BackwardCompat(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	// No layouts registered — backward compatible behavior.
+	app.Page("/about", testRender(func(p PageData) string { return "<html>about</html>" }))
+
+	data := NewPageData("/about", "about", "en", nil, nil, nil)
+	html := app.renderPage(data)
+
+	// Without layouts, renderPage should not wrap anything.
+	if html != "<html>about</html>" {
+		t.Errorf("renderPage = %q, want '<html>about</html>'", html)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fragment composition tests
+// ---------------------------------------------------------------------------
+
+func TestApp_ComposeFragment_RootTarget_SingleLayout(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Page("/about", testRender(func(p PageData) string { return "about-content" }))
+
+	data := NewPageData("/about", "about", "en", nil, nil, nil)
+	frag := app.renderPageFragment(data, "root")
+
+	// Target is root, which is the only layout — fragment is just the content.
+	if frag != "about-content" {
+		t.Errorf("fragment(root) = %q, want 'about-content'", frag)
+	}
+}
+
+func TestApp_ComposeFragment_RootTarget_NestedLayouts(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/blog", "blog", testLayout("blog"))
+	app.Collection("/blog", "Blog",
+		testRender(func(p PageData) string { return "listing" }),
+		testRender(func(p PageData) string { return "entry-content" }),
+	)
+
+	data := NewPageData("/blog/my-post", "my-post", "en", nil, nil, nil)
+
+	// Root fragment: wraps content in blog layout (deeper than root).
+	rootFrag := app.renderPageFragment(data, "root")
+	wantRoot := `<blog-layout data-layout="blog">entry-content</blog-layout>`
+	if rootFrag != wantRoot {
+		t.Errorf("fragment(root) =\n  %q\nwant:\n  %q", rootFrag, wantRoot)
+	}
+
+	// Blog fragment: just the raw content (blog is innermost).
+	blogFrag := app.renderPageFragment(data, "blog")
+	if blogFrag != "entry-content" {
+		t.Errorf("fragment(blog) = %q, want 'entry-content'", blogFrag)
+	}
+}
+
+func TestApp_ComposeFragment_UnknownLayout(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Page("/about", testRender(func(p PageData) string { return "about" }))
+
+	data := NewPageData("/about", "about", "en", nil, nil, nil)
+	frag := app.renderPageFragment(data, "nonexistent")
+
+	// Unknown layout ID → just the raw content (no wrapping).
+	if frag != "about" {
+		t.Errorf("fragment(nonexistent) = %q, want 'about'", frag)
+	}
+}
+
+func TestApp_ComposeFragment_ThreeLevels(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/docs", "docs", testLayout("docs"))
+	app.Layout("/docs/api", "api", testLayout("api"))
+	app.Page("/docs/api/endpoints", testRender(func(p PageData) string { return "endpoints" }))
+
+	data := NewPageData("/docs/api/endpoints", "endpoints", "en", nil, nil, nil)
+
+	// Root fragment: should include docs > api > content.
+	rootFrag := app.renderPageFragment(data, "root")
+	wantRoot := `<docs-layout data-layout="docs"><api-layout data-layout="api">endpoints</api-layout></docs-layout>`
+	if rootFrag != wantRoot {
+		t.Errorf("fragment(root) =\n  %q\nwant:\n  %q", rootFrag, wantRoot)
+	}
+
+	// Docs fragment: should include api > content.
+	docsFrag := app.renderPageFragment(data, "docs")
+	wantDocs := `<api-layout data-layout="api">endpoints</api-layout>`
+	if docsFrag != wantDocs {
+		t.Errorf("fragment(docs) =\n  %q\nwant:\n  %q", docsFrag, wantDocs)
+	}
+
+	// API fragment: just the content.
+	apiFrag := app.renderPageFragment(data, "api")
+	if apiFrag != "endpoints" {
+		t.Errorf("fragment(api) = %q, want 'endpoints'", apiFrag)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Layout with contentPath (multi-locale) tests
+// ---------------------------------------------------------------------------
+
+func TestApp_ComposeWithLayouts_UsesContentPath(t *testing.T) {
+	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
+	app.Layout("/", "root", testLayout("root"))
+	app.Layout("/blog", "blog", testLayout("blog"))
+	app.Collection("/blog", "Blog",
+		testRender(func(p PageData) string { return "listing" }),
+		testRender(func(p PageData) string { return "entry:" + p.Path }),
+	)
+
+	// Simulate multi-locale: Path is /en/blog/post, contentPath is /blog/post.
+	data := NewPageData("/blog/post", "post", "en", nil, nil, nil)
+	data.Path = "/en/blog/post"
+	data.contentPath = "/blog/post"
+
+	html := app.renderPage(data)
+
+	// Layout chain should match on contentPath ("/blog/post"), not Path ("/en/blog/post").
+	want := `<root-layout data-layout="root"><blog-layout data-layout="blog">entry:/en/blog/post</blog-layout></root-layout>`
+	if html != want {
+		t.Errorf("renderPage =\n  %q\nwant:\n  %q", html, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PageData layout metadata tests
+// ---------------------------------------------------------------------------
+
+func TestPageData_HasLayouts_True(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	p.layoutManifest = map[string]string{"/": "root"}
+	if !p.HasLayouts() {
+		t.Error("HasLayouts() should be true")
+	}
+}
+
+func TestPageData_HasLayouts_False(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	if p.HasLayouts() {
+		t.Error("HasLayouts() should be false")
+	}
+}
+
+func TestPageData_LayoutManifest(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	p.layoutManifest = map[string]string{"/": "root", "/blog": "blog"}
+
+	m := p.LayoutManifest()
+	if m["/"] != "root" || m["/blog"] != "blog" {
+		t.Errorf("LayoutManifest() = %v", m)
+	}
+}
+
+func TestPageData_ContentPathOrPath(t *testing.T) {
+	// With contentPath set.
+	p := NewPageData("/en/about", "about", "en", nil, nil, nil)
+	p.contentPath = "/about"
+	if p.contentPathOrPath() != "/about" {
+		t.Errorf("contentPathOrPath() = %q, want '/about'", p.contentPathOrPath())
+	}
+
+	// Without contentPath.
+	p2 := NewPageData("/about", "about", "en", nil, nil, nil)
+	if p2.contentPathOrPath() != "/about" {
+		t.Errorf("contentPathOrPath() = %q, want '/about'", p2.contentPathOrPath())
+	}
+}
+
+func TestScanRoutes_IgnoresLayoutFile(t *testing.T) {
+	dir := t.TempDir()
+	writeTemplFile(t, dir, "index.templ")
+	writeTemplFile(t, dir, "layout.templ")
+
+	routes, err := ScanRoutes(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("got %d routes, want 1 (layout.templ should be ignored)", len(routes))
+	}
+	if routes[0].URLPattern != "/" {
+		t.Errorf("URLPattern = %q, want /", routes[0].URLPattern)
 	}
 }

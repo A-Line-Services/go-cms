@@ -1,0 +1,15 @@
+package components
+
+import cms "go.a-line.be/cms"
+
+// Router emits a self-contained SPA router script that intercepts internal
+// link clicks, prefetches page fragments on hover, and swaps content at
+// the correct layout boundary — giving static sites SPA-like navigation.
+//
+// Include this once in your root layout, just before </body>.
+// When no layouts are registered (p.HasLayouts() == false), it renders nothing.
+templ Router(p cms.PageData) {
+	if p.HasLayouts() {
+		@templ.Raw(routerScript(p))
+	}
+}

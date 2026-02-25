@@ -244,4 +244,63 @@ func TestClient_ListPages_ReturnsPaths(t *testing.T) {
 	}
 }
 
+func TestClient_ListLocales_ReturnsLocales(t *testing.T) {
+	client := mockCMS(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/test-site/locales" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Header.Get("X-API-Key") != "test-key" {
+			t.Errorf("missing or wrong API key header")
+		}
+		json.NewEncoder(w).Encode([]apiLocaleResponse{
+			{Locale: "en", Label: "English", IsDefault: true},
+			{Locale: "nl", Label: "Nederlands", IsDefault: false},
+		})
+	}))
+
+	locales, err := client.ListLocales(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locales) != 2 {
+		t.Fatalf("expected 2 locales, got %d", len(locales))
+	}
+	if locales[0].Code != "en" || !locales[0].IsDefault {
+		t.Errorf("locales[0] = %+v, want en/default", locales[0])
+	}
+	if locales[1].Code != "nl" || locales[1].IsDefault {
+		t.Errorf("locales[1] = %+v, want nl/non-default", locales[1])
+	}
+	if locales[0].Label != "English" {
+		t.Errorf("locales[0].Label = %q, want English", locales[0].Label)
+	}
+}
+
+func TestClient_ListLocales_SingleLocale(t *testing.T) {
+	client := mockCMS(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]apiLocaleResponse{
+			{Locale: "en", Label: "English", IsDefault: true},
+		})
+	}))
+
+	locales, err := client.ListLocales(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locales) != 1 {
+		t.Fatalf("expected 1 locale, got %d", len(locales))
+	}
+}
+
+func TestClient_ListLocales_Error(t *testing.T) {
+	client := mockCMS(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+
+	_, err := client.ListLocales(context.Background())
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+}
+
 // jsonVal is defined in build_test.go

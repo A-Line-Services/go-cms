@@ -3,6 +3,9 @@ package components
 import cms "go.a-line.be/cms"
 
 // SEOHead renders SEO meta tags in the <head> from CMS data.
+// When the page has multiple locales configured, it also renders
+// <link rel="alternate" hreflang="..."> tags for each locale
+// and an x-default hreflang pointing to the unprefixed root path.
 templ SEOHead(p cms.PageData) {
 	if p.SEO().MetaTitle != "" {
 		<title>{ p.SEO().MetaTitle }</title>
@@ -14,5 +17,11 @@ templ SEOHead(p cms.PageData) {
 	}
 	if p.SEO().OGImageURL != "" {
 		<meta property="og:image" content={ p.SEO().OGImageURL }/>
+	}
+	if len(p.Locales) > 1 {
+		for _, locale := range p.Locales {
+			<link rel="alternate" hreflang={ locale.Code } href={ p.PrefixedAlternatePath(locale.Code) }/>
+		}
+		<link rel="alternate" hreflang="x-default" href={ p.ContentPath() }/>
 	}
 }

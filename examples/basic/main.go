@@ -32,7 +32,6 @@ func main() {
 		APIURL:   envOr("CMS_API_URL", "http://localhost:8000"),
 		SiteSlug: envOr("CMS_SITE_SLUG", "example"),
 		APIKey:   envOr("CMS_API_KEY", ""),
-		Locale:   envOr("CMS_LOCALE", "en"),
 	})
 
 	// Register routes from the generated routes_gen.go.

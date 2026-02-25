@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -58,6 +59,11 @@ type fetchResult struct {
 // Page content and SEO data are fetched concurrently (up to 10 at a time),
 // then pages are rendered and written to disk.
 //
+// When the CMS site has multiple locales configured, Build generates
+// locale-prefixed pages (e.g. /en/about, /nl/about) for each locale.
+// For the default locale, pages are also built at the root path (/about).
+// Single-locale sites are built without prefixes (backward compatible).
+//
 // For each fixed page:
 //  1. Fetches content from the CMS (returns empty PageData if unavailable)
 //  2. Fetches SEO data
@@ -93,6 +99,47 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		m.AddFunc("application/javascript", js.Minify)
 	}
 
+	// Discover locales from the CMS.
+	locales, localeErr := client.ListLocales(ctx)
+	multiLocale := localeErr == nil && len(locales) > 1
+
+	if multiLocale {
+		if err := a.buildMultiLocale(ctx, client, opts, imgProc, mediaDL, m, locales); err != nil {
+			return err
+		}
+	} else {
+		if err := a.buildSingleLocale(ctx, client, opts, imgProc, mediaDL, m); err != nil {
+			return err
+		}
+	}
+
+	// Write template files for CMS preview (rendered with empty data,
+	// preserving data-cms-* attributes and SubcollectionOr fallback entries).
+	// Template files are always single-locale — they're for schema discovery.
+	if err := a.writeTemplateFiles(opts.OutDir); err != nil {
+		return err
+	}
+
+	// Write the layout route manifest for the SPA router.
+	if a.hasLayouts() {
+		if err := a.writeRouteManifest(opts.OutDir); err != nil {
+			return err
+		}
+	}
+
+	// Write sync payload if requested.
+	if opts.SyncFile != "" {
+		if err := a.WriteSyncJSON(opts.SyncFile); err != nil {
+			return fmt.Errorf("cms: write sync file: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// buildSingleLocale is the original single-locale build path.
+// Used when the CMS site has only one locale configured (or ListLocales fails).
+func (a *App) buildSingleLocale(ctx context.Context, client *Client, opts BuildOptions, imgProc imageProcessor, mediaDL *mediaDownloader, m *minify.M) error {
 	// 1. List all published pages (single call, needed to discover entries).
 	allPages, listErr := client.ListPages(ctx)
 	if listErr != nil {
@@ -100,10 +147,10 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 	}
 
 	// 2. Plan all pages to fetch.
-	jobs, seen := a.planFetchJobs(allPages)
+	jobs, _ := a.planFetchJobs(allPages)
 
 	// 3. Fetch all page content + SEO concurrently.
-	results := a.fetchAll(ctx, client, jobs, imgProc, mediaDL)
+	results := a.fetchAllForLocale(ctx, client, jobs, a.config.Locale, imgProc, mediaDL)
 
 	// 4. Assemble listings from entry results.
 	listings := make(map[string][]PageData)
@@ -114,8 +161,10 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 	}
 
 	// 5. Write all pages.
+	manifest := a.layoutManifest()
 	for _, r := range results {
 		page := r.page
+		page.layoutManifest = manifest
 
 		// Attach listings to non-entry, non-template pages.
 		if r.job.collKey == "" && !r.job.isTemplate && len(listings) > 0 {
@@ -127,21 +176,119 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		}
 	}
 
-	// Write template files for CMS preview (rendered with empty data,
-	// preserving data-cms-* attributes and SubcollectionOr fallback entries).
-	if err := a.writeTemplateFiles(opts.OutDir); err != nil {
-		return err
+	return nil
+}
+
+// buildMultiLocale builds all pages for each configured locale with locale-prefixed
+// paths. For the default locale, pages are also built at root paths (no prefix).
+func (a *App) buildMultiLocale(ctx context.Context, client *Client, opts BuildOptions, imgProc imageProcessor, mediaDL *mediaDownloader, m *minify.M, locales []SiteLocale) error {
+	// 1. List all published pages (once, shared across locales).
+	allPages, listErr := client.ListPages(ctx)
+	if listErr != nil {
+		allPages = nil
 	}
 
-	// Write sync payload if requested.
-	if opts.SyncFile != "" {
-		if err := a.WriteSyncJSON(opts.SyncFile); err != nil {
-			return fmt.Errorf("cms: write sync file: %w", err)
+	// Find the default locale.
+	var defaultLocale string
+	for _, l := range locales {
+		if l.IsDefault {
+			defaultLocale = l.Code
+			break
 		}
 	}
 
-	_ = seen // used during planning to deduplicate
+	// 2. Plan fetch jobs (same CMS paths for all locales).
+	jobs, _ := a.planFetchJobs(allPages)
+
+	// 3. Build each locale.
+	for _, locale := range locales {
+		prefix := "/" + locale.Code
+
+		fmt.Fprintf(os.Stderr, "building locale %s (%s)...\n", locale.Code, locale.Label)
+
+		// Fetch content for this locale.
+		results := a.fetchAllForLocale(ctx, client, jobs, locale.Code, imgProc, mediaDL)
+
+		// Build prefixed version: /en/about, /nl/about, etc.
+		if err := a.writeLocaleResults(opts, m, results, prefix, locales, defaultLocale); err != nil {
+			return err
+		}
+
+		// For the default locale, also build at root paths (no prefix).
+		if locale.IsDefault {
+			if err := a.writeLocaleResults(opts, m, results, "", locales, defaultLocale); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
+}
+
+// writeLocaleResults applies locale metadata to fetch results and writes them to disk.
+// prefix is the locale URL prefix (e.g. "/en") or "" for the default-locale root build.
+func (a *App) writeLocaleResults(opts BuildOptions, m *minify.M, results []fetchResult, prefix string, locales []SiteLocale, defaultLocale string) error {
+	// Apply locale metadata and build locale-prefixed paths.
+	// We work on copies to avoid mutating the originals (needed when the same
+	// results are written twice: once prefixed, once at root for the default locale).
+	pages := make([]struct {
+		page PageData
+		job  fetchJob
+	}, len(results))
+
+	manifest := a.layoutManifest()
+	for i, r := range results {
+		page := r.page // value copy
+
+		page.contentPath = page.Path
+		page.Locales = locales
+		page.defaultLocale = defaultLocale
+		page.localePrefix = prefix
+		page.layoutManifest = manifest
+
+		if prefix != "" {
+			page.Path = localePrefixPath(prefix, page.Path)
+		}
+
+		setEntryLocalePrefix(page.subcollections, prefix)
+		pages[i] = struct {
+			page PageData
+			job  fetchJob
+		}{page: page, job: r.job}
+	}
+
+	// Assemble locale-scoped listings.
+	listings := make(map[string][]PageData)
+	for _, p := range pages {
+		if p.job.collKey != "" {
+			listings[p.job.collKey] = append(listings[p.job.collKey], p.page)
+		}
+	}
+
+	// Write all pages.
+	for _, p := range pages {
+		page := p.page
+
+		// Attach listings to non-entry, non-template pages.
+		if p.job.collKey == "" && !p.job.isTemplate && len(listings) > 0 {
+			page.listings = listings
+		}
+
+		if err := a.writePage(opts, m, page); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// localePrefixPath prepends a locale prefix to a URL path.
+// "/" → "/en", "/about" → "/en/about".
+func localePrefixPath(prefix, path string) string {
+	if path == "/" {
+		return prefix
+	}
+	return prefix + path
 }
 
 // planFetchJobs determines all pages that need fetching, avoiding duplicates.
@@ -188,8 +335,8 @@ func (a *App) planFetchJobs(allPages []apiPageListItem) ([]fetchJob, map[string]
 	return jobs, seen
 }
 
-// fetchAll fetches content + SEO for all jobs concurrently, up to 10 at a time.
-func (a *App) fetchAll(ctx context.Context, client *Client, jobs []fetchJob, imgProc imageProcessor, dl *mediaDownloader) []fetchResult {
+// fetchAllForLocale fetches content + SEO for all jobs concurrently for a specific locale.
+func (a *App) fetchAllForLocale(ctx context.Context, client *Client, jobs []fetchJob, locale string, imgProc imageProcessor, dl *mediaDownloader) []fetchResult {
 	results := make([]fetchResult, len(jobs))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 10)
@@ -201,17 +348,17 @@ func (a *App) fetchAll(ctx context.Context, client *Client, jobs []fetchJob, img
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			page, err := client.GetPage(ctx, job.path)
+			page, err := client.GetPage(ctx, job.path, WithLocale(locale))
 			if err != nil {
 				if !job.isTemplate {
 					fmt.Fprintf(os.Stderr, "  [warn] %s: no CMS content, using fallbacks (%v)\n", job.path, err)
 				}
-				page = NewPageData(job.path, job.slug, a.config.Locale, nil, nil, nil)
+				page = NewPageData(job.path, job.slug, locale, nil, nil, nil)
 			} else {
 				fmt.Fprintf(os.Stderr, "  [ok]   %s: fetched CMS content\n", job.path)
 			}
 
-			seo, seoErr := client.GetSEO(ctx, job.path)
+			seo, seoErr := client.GetSEO(ctx, job.path, WithLocale(locale))
 			if seoErr == nil {
 				page.seo = &seo
 			}
@@ -277,6 +424,8 @@ func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOption
 }
 
 // writePage renders a PageData, optionally minifies, and writes the HTML file.
+// When layouts are registered, it also generates fragment files for each
+// layout level for SPA-like navigation.
 func (a *App) writePage(opts BuildOptions, m *minify.M, page PageData) error {
 	output := a.renderPage(page)
 
@@ -300,6 +449,14 @@ func (a *App) writePage(opts BuildOptions, m *minify.M, page PageData) error {
 	if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
 		return fmt.Errorf("cms: write %s: %w", outPath, err)
 	}
+
+	// Generate layout fragment files for SPA navigation.
+	if a.hasLayouts() {
+		if err := a.writePageFragments(opts, m, page); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -338,6 +495,83 @@ func pathToTemplateFile(outDir, urlPath string) string {
 		return filepath.Join(outDir, "index.template.html")
 	}
 	return filepath.Join(outDir, trimmed, "index.template.html")
+}
+
+// ---------------------------------------------------------------------------
+// Layout fragments (for SPA navigation)
+// ---------------------------------------------------------------------------
+
+// pathToFragmentFile converts a URL path + layout ID to a fragment path.
+// "/" → "{outDir}/_root.html"
+// "/about" → "{outDir}/about/_root.html"
+// "/blog/post" → "{outDir}/blog/post/_root.html"
+func pathToFragmentFile(outDir, urlPath, layoutID string) string {
+	trimmed := strings.Trim(urlPath, "/")
+	name := "_" + layoutID + ".html"
+	if trimmed == "" {
+		return filepath.Join(outDir, name)
+	}
+	return filepath.Join(outDir, trimmed, name)
+}
+
+// writePageFragments generates fragment HTML files for each layout level.
+// Each fragment contains the HTML that goes inside a layout's [data-layout] slot.
+func (a *App) writePageFragments(opts BuildOptions, m *minify.M, page PageData) error {
+	chain := a.layoutChain(page.contentPathOrPath())
+	if len(chain) == 0 {
+		return nil
+	}
+
+	// Extract title for route metadata.
+	title := page.SEO().MetaTitle
+	if title == "" {
+		title = page.Slug
+	}
+
+	for _, layout := range chain {
+		frag := a.renderPageFragment(page, layout.id)
+		if frag == "" {
+			continue
+		}
+		frag = stripCMSAttributes(frag)
+
+		if m != nil {
+			// Wrap in a temporary document for HTML minification, then unwrap.
+			minified, err := m.String("text/html", frag)
+			if err == nil {
+				frag = minified
+			}
+		}
+
+		// Prepend route metadata as an HTML comment for the SPA router.
+		meta, _ := json.Marshal(map[string]string{"t": title})
+		frag = "<!--route:" + string(meta) + "-->\n" + frag
+
+		fragPath := pathToFragmentFile(opts.OutDir, page.Path, layout.id)
+		if err := os.MkdirAll(filepath.Dir(fragPath), 0o755); err != nil {
+			return fmt.Errorf("cms: mkdir %s: %w", filepath.Dir(fragPath), err)
+		}
+		if err := os.WriteFile(fragPath, []byte(frag), 0o644); err != nil {
+			return fmt.Errorf("cms: write fragment %s: %w", fragPath, err)
+		}
+	}
+	return nil
+}
+
+// writeRouteManifest writes _routes.json with the layout hierarchy
+// for the SPA router to determine which fragments to fetch.
+func (a *App) writeRouteManifest(outDir string) error {
+	manifest := struct {
+		Layouts map[string]string `json:"layouts"`
+	}{
+		Layouts: a.layoutManifest(),
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return fmt.Errorf("cms: marshal route manifest: %w", err)
+	}
+	outPath := filepath.Join(outDir, "_routes.json")
+	return os.WriteFile(outPath, data, 0o644)
 }
 
 // writeTemplateFiles renders each page with empty data (preserving all
