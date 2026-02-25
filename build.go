@@ -99,16 +99,22 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		m.AddFunc("application/javascript", js.Minify)
 	}
 
+	// List all published pages (shared across locale builds and sitemap).
+	allPages, listErr := client.ListPages(ctx)
+	if listErr != nil {
+		allPages = nil
+	}
+
 	// Discover locales from the CMS.
 	locales, localeErr := client.ListLocales(ctx)
 	multiLocale := localeErr == nil && len(locales) > 1
 
 	if multiLocale {
-		if err := a.buildMultiLocale(ctx, client, opts, imgProc, mediaDL, m, locales); err != nil {
+		if err := a.buildMultiLocale(ctx, client, opts, imgProc, mediaDL, m, locales, allPages); err != nil {
 			return err
 		}
 	} else {
-		if err := a.buildSingleLocale(ctx, client, opts, imgProc, mediaDL, m); err != nil {
+		if err := a.buildSingleLocale(ctx, client, opts, imgProc, mediaDL, m, allPages); err != nil {
 			return err
 		}
 	}
@@ -127,6 +133,29 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		}
 	}
 
+	// Generate sitemap.xml and robots.txt when we know the public URL.
+	siteURL := a.resolveSiteURL(ctx, client)
+	if siteURL != "" {
+		var defaultLocale string
+		if multiLocale {
+			for _, l := range locales {
+				if l.IsDefault {
+					defaultLocale = l.Code
+					break
+				}
+			}
+		}
+		sd := a.collectSitemapURLs(allPages, locales, defaultLocale)
+		sd.siteURL = strings.TrimRight(siteURL, "/")
+		if err := sd.write(opts.OutDir, locales); err != nil {
+			return fmt.Errorf("cms: write sitemap: %w", err)
+		}
+		if err := writeRobotsTxt(opts.OutDir, siteURL); err != nil {
+			return fmt.Errorf("cms: write robots.txt: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "  [ok]   sitemap.xml + robots.txt written\n")
+	}
+
 	// Write sync payload if requested.
 	if opts.SyncFile != "" {
 		if err := a.WriteSyncJSON(opts.SyncFile); err != nil {
@@ -137,16 +166,28 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 	return nil
 }
 
+// resolveSiteURL determines the public site URL for sitemap generation.
+// It uses Config.SiteURL if set, otherwise fetches the domain from the CMS.
+func (a *App) resolveSiteURL(ctx context.Context, client *Client) string {
+	if a.config.SiteURL != "" {
+		return a.config.SiteURL
+	}
+	info, err := client.GetSiteInfo(ctx)
+	if err != nil || info.Domain == nil || *info.Domain == "" {
+		return ""
+	}
+	domain := *info.Domain
+	// Ensure scheme is present.
+	if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+		domain = "https://" + domain
+	}
+	return domain
+}
+
 // buildSingleLocale is the original single-locale build path.
 // Used when the CMS site has only one locale configured (or ListLocales fails).
-func (a *App) buildSingleLocale(ctx context.Context, client *Client, opts BuildOptions, imgProc imageProcessor, mediaDL *mediaDownloader, m *minify.M) error {
-	// 1. List all published pages (single call, needed to discover entries).
-	allPages, listErr := client.ListPages(ctx)
-	if listErr != nil {
-		allPages = nil
-	}
-
-	// 2. Plan all pages to fetch.
+func (a *App) buildSingleLocale(ctx context.Context, client *Client, opts BuildOptions, imgProc imageProcessor, mediaDL *mediaDownloader, m *minify.M, allPages []apiPageListItem) error {
+	// 1. Plan all pages to fetch.
 	jobs, _ := a.planFetchJobs(allPages)
 
 	// 3. Fetch all page content + SEO concurrently.
@@ -181,13 +222,7 @@ func (a *App) buildSingleLocale(ctx context.Context, client *Client, opts BuildO
 
 // buildMultiLocale builds all pages for each configured locale with locale-prefixed
 // paths. For the default locale, pages are also built at root paths (no prefix).
-func (a *App) buildMultiLocale(ctx context.Context, client *Client, opts BuildOptions, imgProc imageProcessor, mediaDL *mediaDownloader, m *minify.M, locales []SiteLocale) error {
-	// 1. List all published pages (once, shared across locales).
-	allPages, listErr := client.ListPages(ctx)
-	if listErr != nil {
-		allPages = nil
-	}
-
+func (a *App) buildMultiLocale(ctx context.Context, client *Client, opts BuildOptions, imgProc imageProcessor, mediaDL *mediaDownloader, m *minify.M, locales []SiteLocale, allPages []apiPageListItem) error {
 	// Find the default locale.
 	var defaultLocale string
 	for _, l := range locales {
@@ -464,10 +499,17 @@ func (a *App) writePage(opts BuildOptions, m *minify.M, page PageData) error {
 // "/" → "{outDir}/index.html"
 // "/about" → "{outDir}/about/index.html"
 // "/blog/post" → "{outDir}/blog/post/index.html"
+// "/404" → "{outDir}/404.html" (special case for error pages)
 func pathToFile(outDir, urlPath string) string {
 	trimmed := strings.Trim(urlPath, "/")
 	if trimmed == "" {
 		return filepath.Join(outDir, "index.html")
+	}
+	// Error pages are written as {name}.html instead of {name}/index.html
+	// so static hosts (Cloudflare Pages, Netlify) serve them automatically.
+	base := filepath.Base(trimmed)
+	if base == "404" || base == "500" {
+		return filepath.Join(outDir, trimmed+".html")
 	}
 	return filepath.Join(outDir, trimmed, "index.html")
 }
@@ -489,10 +531,15 @@ func pathSlug(path string) string {
 // pathToTemplateFile converts a URL path to a template filesystem path.
 // "/" → "{outDir}/index.template.html"
 // "/about" → "{outDir}/about/index.template.html"
+// "/404" → "{outDir}/404.template.html"
 func pathToTemplateFile(outDir, urlPath string) string {
 	trimmed := strings.Trim(urlPath, "/")
 	if trimmed == "" {
 		return filepath.Join(outDir, "index.template.html")
+	}
+	base := filepath.Base(trimmed)
+	if base == "404" || base == "500" {
+		return filepath.Join(outDir, trimmed+".template.html")
 	}
 	return filepath.Join(outDir, trimmed, "index.template.html")
 }

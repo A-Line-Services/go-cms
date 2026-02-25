@@ -18,6 +18,8 @@ func TestFuncName(t *testing.T) {
 		{"contact-us.templ", "ContactUsPage"},
 		{"my-cool-page.templ", "MyCoolPagePage"},
 		{"getting-started.templ", "GettingStartedPage"},
+		{"404.templ", "NotFoundPage"},
+		{"500.templ", "ServerErrorPage"},
 	}
 	for _, tt := range tests {
 		got := funcName(tt.filename)
@@ -206,6 +208,37 @@ func TestGenerateRoutes_NoLayout(t *testing.T) {
 	// Should NOT have Layout calls.
 	if strings.Contains(code, "Layout") {
 		t.Errorf("unexpected Layout call:\n%s", code)
+	}
+}
+
+func TestGenerateRoutes_ErrorPage_NoSitemap(t *testing.T) {
+	dir := t.TempDir()
+
+	pagesDir := filepath.Join(dir, "pages")
+	writeTemplFile(t, pagesDir, "index.templ")
+	writeTemplFile(t, pagesDir, "404.templ")
+	writeTemplFile(t, pagesDir, "500.templ")
+
+	code, err := GenerateRoutes(GenerateConfig{
+		PagesDir:   pagesDir,
+		ModulePath: "myapp",
+		Package:    "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Error pages should be registered with cms.NoSitemap.
+	if !strings.Contains(code, `app.Page("/404", pages.NotFoundPage, cms.NoSitemap)`) {
+		t.Errorf("missing 404 with NoSitemap:\n%s", code)
+	}
+	if !strings.Contains(code, `app.Page("/500", pages.ServerErrorPage, cms.NoSitemap)`) {
+		t.Errorf("missing 500 with NoSitemap:\n%s", code)
+	}
+
+	// Regular pages should NOT have NoSitemap.
+	if strings.Contains(code, `app.Page("/", pages.IndexPage, cms.NoSitemap)`) {
+		t.Error("index page should not have NoSitemap")
 	}
 }
 

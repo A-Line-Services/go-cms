@@ -72,6 +72,13 @@ type apiLocaleResponse struct {
 	IsDefault bool   `json:"is_default"`
 }
 
+type apiSiteResponse struct {
+	Name          string  `json:"name"`
+	Slug          string  `json:"slug"`
+	Domain        *string `json:"domain"`
+	DefaultLocale string  `json:"default_locale"`
+}
+
 type apiEmailFieldValue struct {
 	Key    string          `json:"key"`
 	Locale string          `json:"locale"`
@@ -198,6 +205,15 @@ func (c *Client) ListLocales(ctx context.Context) ([]SiteLocale, error) {
 		}
 	}
 	return locales, nil
+}
+
+// GetSiteInfo fetches basic site information (name, domain, default locale).
+func (c *Client) GetSiteInfo(ctx context.Context) (*apiSiteResponse, error) {
+	var info apiSiteResponse
+	if err := c.do(ctx, "/site", &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
 }
 
 // GetPage fetches a published page's content by path and returns a PageData.

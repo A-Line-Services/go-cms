@@ -2267,6 +2267,80 @@ func TestBuild_MultiLocale_WithLayouts_GeneratesFragments(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Error page path convention tests (404.html, 500.html)
+// ---------------------------------------------------------------------------
+
+func TestPathToFile_ErrorPages(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/404", filepath.Join("/out", "404.html")},
+		{"/500", filepath.Join("/out", "500.html")},
+		{"/en/404", filepath.Join("/out", "en", "404.html")},
+		{"/nl/500", filepath.Join("/out", "nl", "500.html")},
+	}
+	for _, tt := range tests {
+		got := pathToFile("/out", tt.path)
+		if got != tt.want {
+			t.Errorf("pathToFile(%q) = %q, want %q", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestPathToTemplateFile_ErrorPages(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/404", filepath.Join("/out", "404.template.html")},
+		{"/500", filepath.Join("/out", "500.template.html")},
+	}
+	for _, tt := range tests {
+		got := pathToTemplateFile("/out", tt.path)
+		if got != tt.want {
+			t.Errorf("pathToTemplateFile(%q) = %q, want %q", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestBuild_404Page_WritesAs404HTML(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages":
+			json.NewEncoder(w).Encode([]apiPageListItem{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string { return "home" }))
+	app.Page("/404", testRender(func(p PageData) string { return "<html>Not Found</html>" }), NoSitemap)
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{OutDir: outDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should be written as 404.html (not 404/index.html).
+	content, err := os.ReadFile(filepath.Join(outDir, "404.html"))
+	if err != nil {
+		t.Fatal("404.html not found:", err)
+	}
+	if string(content) != "<html>Not Found</html>" {
+		t.Errorf("404.html = %q", content)
+	}
+
+	// Should NOT exist as 404/index.html.
+	if _, err := os.Stat(filepath.Join(outDir, "404", "index.html")); !os.IsNotExist(err) {
+		t.Error("404/index.html should not exist")
+	}
+}
+
 func TestLocalePrefixPath(t *testing.T) {
 	tests := []struct {
 		prefix string

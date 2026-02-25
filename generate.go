@@ -201,7 +201,11 @@ func GenerateRoutes(cfg GenerateConfig) (string, error) {
 		if dir != "" && dir != "." {
 			pkg = filepath.Base(dir)
 		}
-		fmt.Fprintf(&b, "\tapp.Page(%q, %s.%s)\n", p.URLPattern, pkg, fn)
+		if isErrorPage(p.URLPattern) {
+			fmt.Fprintf(&b, "\tapp.Page(%q, %s.%s, cms.NoSitemap)\n", p.URLPattern, pkg, fn)
+		} else {
+			fmt.Fprintf(&b, "\tapp.Page(%q, %s.%s)\n", p.URLPattern, pkg, fn)
+		}
 	}
 
 	// Then collections.
@@ -231,9 +235,18 @@ func WriteGeneratedRoutes(cfg GenerateConfig, outFile string) error {
 
 // funcName derives a Go exported function name from a templ filename.
 // "index.templ" → "IndexPage", "about.templ" → "AboutPage",
-// "contact-us.templ" → "ContactUsPage".
+// "contact-us.templ" → "ContactUsPage", "404.templ" → "NotFoundPage".
 func funcName(filename string) string {
 	base := strings.TrimSuffix(filename, ".templ")
+
+	// Special cases for filenames that aren't valid Go identifiers.
+	switch base {
+	case "404":
+		return "NotFoundPage"
+	case "500":
+		return "ServerErrorPage"
+	}
+
 	parts := strings.Split(base, "-")
 	var result string
 	for _, p := range parts {

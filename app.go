@@ -33,6 +33,11 @@ type Config struct {
 	// Locale is the default locale for content resolution (default: "en").
 	Locale string
 
+	// SiteURL is the public URL of the site (e.g. "https://example.com").
+	// When set, Build() generates a sitemap.xml and robots.txt.
+	// If empty, the build fetches the domain from the CMS automatically.
+	SiteURL string
+
 	// BeforeRebuild is called by the dev server before each rebuild.
 	// Use this to reload Vite manifests or other state that may have
 	// changed on disk since the last build.
@@ -49,11 +54,18 @@ type EmailVariable struct {
 	SampleValue string `json:"sample_value,omitempty"`
 }
 
+// PageOption configures optional behavior for a registered page.
+type PageOption func(*pageDef)
+
+// NoSitemap excludes a page from the generated sitemap.
+var NoSitemap PageOption = func(p *pageDef) { p.noSitemap = true }
+
 // pageDef is an internal registration for a fixed page.
 type pageDef struct {
-	path   string
-	title  string
-	render RenderFunc
+	path      string
+	title     string
+	render    RenderFunc
+	noSitemap bool
 }
 
 // collectionDef is an internal registration for a collection.
@@ -106,21 +118,29 @@ func NewApp(cfg Config) *App {
 }
 
 // Page registers a static page. Title is auto-derived from the path.
-func (a *App) Page(path string, render RenderFunc) {
-	a.pages = append(a.pages, pageDef{
+func (a *App) Page(path string, render RenderFunc, opts ...PageOption) {
+	pd := pageDef{
 		path:   path,
 		title:  titleFromPath(path),
 		render: render,
-	})
+	}
+	for _, o := range opts {
+		o(&pd)
+	}
+	a.pages = append(a.pages, pd)
 }
 
 // PageTitle registers a static page with an explicit title.
-func (a *App) PageTitle(path, title string, render RenderFunc) {
-	a.pages = append(a.pages, pageDef{
+func (a *App) PageTitle(path, title string, render RenderFunc, opts ...PageOption) {
+	pd := pageDef{
 		path:   path,
 		title:  title,
 		render: render,
-	})
+	}
+	for _, o := range opts {
+		o(&pd)
+	}
+	a.pages = append(a.pages, pd)
 }
 
 // Collection registers a collection with a listing page and an entry page.
