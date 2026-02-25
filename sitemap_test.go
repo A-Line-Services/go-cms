@@ -255,19 +255,29 @@ func TestCollectSitemapURLs_MultiLocale(t *testing.T) {
 		t.Errorf("expected 4 pages, got %d: %v", len(sd.pages), sd.pages)
 	}
 
-	// Check that both locale prefixes exist.
-	hasEN := false
-	hasNL := false
+	// Default locale (en) should use unprefixed paths: /, /about.
+	// Non-default locale (nl) should use prefixed paths: /nl, /nl/about.
+	paths := make(map[string]bool)
 	for _, p := range sd.pages {
-		if strings.HasPrefix(p.path, "/en") {
-			hasEN = true
-		}
-		if strings.HasPrefix(p.path, "/nl") {
-			hasNL = true
-		}
+		paths[p.path] = true
 	}
-	if !hasEN || !hasNL {
-		t.Errorf("expected both /en and /nl prefixes in: %v", sd.pages)
+	if !paths["/"] {
+		t.Error("missing / (unprefixed default locale home)")
+	}
+	if !paths["/about"] {
+		t.Error("missing /about (unprefixed default locale)")
+	}
+	if !paths["/nl"] {
+		t.Error("missing /nl (prefixed non-default locale)")
+	}
+	if !paths["/nl/about"] {
+		t.Error("missing /nl/about (prefixed non-default locale)")
+	}
+	if paths["/en"] {
+		t.Error("/en should not be in sitemap — default locale uses unprefixed /")
+	}
+	if paths["/en/about"] {
+		t.Error("/en/about should not be in sitemap — default locale uses unprefixed /about")
 	}
 }
 
@@ -332,12 +342,13 @@ func TestSitemapWrite_SingleFile(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSitemapWrite_MultiLocale_HasHreflang(t *testing.T) {
+	// Default locale (en) uses unprefixed paths, non-default (nl) uses prefixed.
 	sd := &sitemapData{
 		siteURL: "https://example.com",
 		pages: []sitemapURLEntry{
-			{path: "/en", changeFreq: "daily", priority: "1.0"},
+			{path: "/", changeFreq: "daily", priority: "1.0"},
 			{path: "/nl", changeFreq: "daily", priority: "1.0"},
-			{path: "/en/about", changeFreq: "weekly", priority: "0.8"},
+			{path: "/about", changeFreq: "weekly", priority: "0.8"},
 			{path: "/nl/about", changeFreq: "weekly", priority: "0.8"},
 		},
 		collections: map[string][]sitemapURLEntry{},
@@ -373,9 +384,21 @@ func TestSitemapWrite_MultiLocale_HasHreflang(t *testing.T) {
 	if !strings.Contains(content, `hreflang="x-default"`) {
 		t.Error("missing x-default hreflang")
 	}
+	// The <loc> for the home page should be the unprefixed root.
+	if !strings.Contains(content, "<loc>https://example.com/</loc>") {
+		t.Error("missing unprefixed root <loc>")
+	}
+	// Should NOT have /en as a <loc> — default locale uses unprefixed.
+	if strings.Contains(content, "<loc>https://example.com/en</loc>") {
+		t.Error("<loc> should not contain /en — default locale uses unprefixed /")
+	}
 	// x-default for the root should point to the unprefixed URL.
 	if !strings.Contains(content, `hreflang="x-default" href="https://example.com/"`) {
 		t.Errorf("x-default for root should point to unprefixed URL, got:\n%s", content)
+	}
+	// en hreflang should still point to /en (the explicit locale prefix).
+	if !strings.Contains(content, `hreflang="en" href="https://example.com/en"`) {
+		t.Errorf("en hreflang should point to /en, got:\n%s", content)
 	}
 }
 
@@ -484,24 +507,24 @@ func TestMakeSitemapURL_SingleLocale(t *testing.T) {
 	}
 }
 
-func TestMakeSitemapURL_MultiLocale(t *testing.T) {
+func TestMakeSitemapURL_MultiLocale_DefaultLocale(t *testing.T) {
+	// Default locale entry uses unprefixed path.
 	locales := []SiteLocale{
 		{Code: "en", Label: "English", IsDefault: true},
 		{Code: "nl", Label: "Nederlands"},
 	}
 	sd := &sitemapData{siteURL: "https://example.com"}
-	e := sitemapURLEntry{path: "/en/about", changeFreq: "weekly", priority: "0.8"}
+	e := sitemapURLEntry{path: "/about", changeFreq: "weekly", priority: "0.8"}
 	u := sd.makeSitemapURL(e, locales)
 
-	if u.Loc != "https://example.com/en/about" {
-		t.Errorf("Loc = %q", u.Loc)
+	if u.Loc != "https://example.com/about" {
+		t.Errorf("Loc = %q, want /about", u.Loc)
 	}
 	// 2 locale alternates + 1 x-default = 3.
 	if len(u.Alternates) != 3 {
 		t.Fatalf("expected 3 alternates (en, nl, x-default), got %d", len(u.Alternates))
 	}
 
-	// Check alternates point to the right URLs.
 	var enAlt, nlAlt, xDefault string
 	for _, alt := range u.Alternates {
 		switch alt.Hreflang {
@@ -521,6 +544,42 @@ func TestMakeSitemapURL_MultiLocale(t *testing.T) {
 	}
 	if xDefault != "https://example.com/about" {
 		t.Errorf("x-default = %q, want https://example.com/about", xDefault)
+	}
+}
+
+func TestMakeSitemapURL_MultiLocale_NonDefaultLocale(t *testing.T) {
+	// Non-default locale entry uses prefixed path.
+	locales := []SiteLocale{
+		{Code: "en", Label: "English", IsDefault: true},
+		{Code: "nl", Label: "Nederlands"},
+	}
+	sd := &sitemapData{siteURL: "https://example.com"}
+	e := sitemapURLEntry{path: "/nl/about", changeFreq: "weekly", priority: "0.8"}
+	u := sd.makeSitemapURL(e, locales)
+
+	if u.Loc != "https://example.com/nl/about" {
+		t.Errorf("Loc = %q, want /nl/about", u.Loc)
+	}
+
+	var enAlt, nlAlt, xDefault string
+	for _, alt := range u.Alternates {
+		switch alt.Hreflang {
+		case "en":
+			enAlt = alt.Href
+		case "nl":
+			nlAlt = alt.Href
+		case "x-default":
+			xDefault = alt.Href
+		}
+	}
+	if enAlt != "https://example.com/en/about" {
+		t.Errorf("en alternate = %q", enAlt)
+	}
+	if nlAlt != "https://example.com/nl/about" {
+		t.Errorf("nl alternate = %q", nlAlt)
+	}
+	if xDefault != "https://example.com/about" {
+		t.Errorf("x-default = %q, want /about", xDefault)
 	}
 }
 

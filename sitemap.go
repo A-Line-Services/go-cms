@@ -137,9 +137,15 @@ func (a *App) collectSitemapURLs(allPages []apiPageListItem, locales []SiteLocal
 		}
 
 		if multiLocale {
+			// Default locale uses the unprefixed (root) path as canonical;
+			// non-default locales use their prefixed path.
 			for _, li := range localeInfos {
+				entryPath := localePrefixPath(li.prefix, p.path)
+				if li.code == defaultLocale {
+					entryPath = p.path
+				}
 				sd.pages = append(sd.pages, sitemapURLEntry{
-					path:       localePrefixPath(li.prefix, p.path),
+					path:       entryPath,
 					lastMod:    lastMod,
 					changeFreq: freq,
 					priority:   priStr,
@@ -165,8 +171,12 @@ func (a *App) collectSitemapURLs(allPages []apiPageListItem, locales []SiteLocal
 
 		if multiLocale {
 			for _, li := range localeInfos {
+				entryPath := localePrefixPath(li.prefix, c.basePath)
+				if li.code == defaultLocale {
+					entryPath = c.basePath
+				}
 				sd.pages = append(sd.pages, sitemapURLEntry{
-					path:       localePrefixPath(li.prefix, c.basePath),
+					path:       entryPath,
 					lastMod:    lastMod,
 					changeFreq: "weekly",
 					priority:   priStr,
@@ -202,8 +212,12 @@ func (a *App) collectSitemapURLs(allPages []apiPageListItem, locales []SiteLocal
 
 				if multiLocale {
 					for _, li := range localeInfos {
+						entryPath := localePrefixPath(li.prefix, ap.Path)
+						if li.code == defaultLocale {
+							entryPath = ap.Path
+						}
 						entryPaths = append(entryPaths, sitemapURLEntry{
-							path:       localePrefixPath(li.prefix, ap.Path),
+							path:       entryPath,
 							lastMod:    lastMod,
 							changeFreq: "weekly",
 							priority:   formatPriority(0.6),
