@@ -78,6 +78,11 @@ type fetchResult struct {
 //
 // If opts.SyncFile is set, the sync payload is also written.
 func (a *App) Build(ctx context.Context, opts BuildOptions) error {
+	// Copy static/ directory contents to the output dir (if it exists).
+	if err := copyStaticDir("static", opts.OutDir); err != nil {
+		return fmt.Errorf("cms: copy static files: %w", err)
+	}
+
 	client := NewClient(a.config)
 
 	// Set up media downloader if requested.
@@ -932,4 +937,59 @@ func buildLQIPURL(baseURL string) string {
 		sep = "&"
 	}
 	return baseURL + sep + "w=32&q=20"
+}
+
+// ---------------------------------------------------------------------------
+// Static file copying
+// ---------------------------------------------------------------------------
+
+// copyStaticDir copies all files from srcDir into dstDir, preserving
+// directory structure. If srcDir does not exist, it silently returns nil.
+// Files in dstDir are overwritten if they already exist.
+func copyStaticDir(srcDir, dstDir string) error {
+	info, err := os.Stat(srcDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+
+	count := 0
+	err = filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, _ := filepath.Rel(srcDir, path)
+		dst := filepath.Join(dstDir, rel)
+
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", dst, err)
+		}
+		count++
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if count > 0 {
+		fmt.Fprintf(os.Stderr, "  [ok]   copied %d static file(s)\n", count)
+	}
+	return nil
 }

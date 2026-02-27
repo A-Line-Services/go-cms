@@ -2359,3 +2359,58 @@ func TestLocalePrefixPath(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Static directory copying tests
+// ---------------------------------------------------------------------------
+
+func TestCopyStaticDir_CopiesFiles(t *testing.T) {
+	srcDir := filepath.Join(t.TempDir(), "static")
+	dstDir := filepath.Join(t.TempDir(), "dist")
+
+	// Create source files.
+	os.MkdirAll(srcDir, 0o755)
+	os.WriteFile(filepath.Join(srcDir, "favicon.svg"), []byte("<svg/>"), 0o644)
+	os.MkdirAll(filepath.Join(srcDir, "sub"), 0o755)
+	os.WriteFile(filepath.Join(srcDir, "sub", "style.css"), []byte("body{}"), 0o644)
+
+	if err := copyStaticDir(srcDir, dstDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check files were copied.
+	data, err := os.ReadFile(filepath.Join(dstDir, "favicon.svg"))
+	if err != nil {
+		t.Fatal("favicon.svg not copied:", err)
+	}
+	if string(data) != "<svg/>" {
+		t.Errorf("favicon.svg = %q", data)
+	}
+
+	data, err = os.ReadFile(filepath.Join(dstDir, "sub", "style.css"))
+	if err != nil {
+		t.Fatal("sub/style.css not copied:", err)
+	}
+	if string(data) != "body{}" {
+		t.Errorf("sub/style.css = %q", data)
+	}
+}
+
+func TestCopyStaticDir_MissingDir_NoError(t *testing.T) {
+	dstDir := t.TempDir()
+	err := copyStaticDir("/nonexistent/static", dstDir)
+	if err != nil {
+		t.Errorf("expected no error for missing dir, got: %v", err)
+	}
+}
+
+func TestCopyStaticDir_EmptyDir_NoError(t *testing.T) {
+	srcDir := filepath.Join(t.TempDir(), "static")
+	dstDir := t.TempDir()
+	os.MkdirAll(srcDir, 0o755)
+
+	err := copyStaticDir(srcDir, dstDir)
+	if err != nil {
+		t.Errorf("expected no error for empty dir, got: %v", err)
+	}
+}

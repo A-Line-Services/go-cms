@@ -248,6 +248,9 @@ type devServer struct {
 // with clean-URL support. When the X-CMS-Preview header is "true", it serves
 // .template.html files (which retain data-cms-* attributes for the CMS
 // preview bridge) instead of production index.html files.
+//
+// Files in the local static/ directory are also served, so changes to
+// static assets are reflected immediately without triggering a rebuild.
 func devFileHandler(dir string) http.Handler {
 	fileServer := http.FileServer(http.Dir(dir))
 
@@ -257,6 +260,14 @@ func devFileHandler(dir string) http.Handler {
 		filePath := dir + r.URL.Path
 		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
 			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// Serve from static/ directory directly (dev convenience — changes
+		// are reflected without a rebuild).
+		staticPath := "static" + r.URL.Path
+		if info, err := os.Stat(staticPath); err == nil && !info.IsDir() {
+			http.ServeFile(w, r, staticPath)
 			return
 		}
 
