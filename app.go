@@ -125,10 +125,9 @@ type App struct {
 }
 
 // NewApp creates a new App with the given configuration.
+// If Locale is empty, the default locale is auto-detected from the CMS
+// at build time. Falls back to "en" if the CMS is unreachable.
 func NewApp(cfg Config) *App {
-	if cfg.Locale == "" {
-		cfg.Locale = "en"
-	}
 	return &App{config: cfg}
 }
 

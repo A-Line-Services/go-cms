@@ -25,6 +25,9 @@ func (a *App) Run() {
 		os.Exit(1)
 	}
 
+	// Auto-detect the default locale from the CMS if not configured.
+	a.resolveLocale(context.Background())
+
 	cmd := os.Args[1]
 	switch cmd {
 	case "build":

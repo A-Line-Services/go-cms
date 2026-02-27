@@ -114,6 +114,11 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 	locales, localeErr := client.ListLocales(ctx)
 	multiLocale := localeErr == nil && len(locales) > 1
 
+	// Auto-detect the default locale from the CMS when not configured.
+	if a.config.Locale == "" {
+		a.config.Locale = resolveDefaultLocale(locales, localeErr)
+	}
+
 	if multiLocale {
 		if err := a.buildMultiLocale(ctx, client, opts, imgProc, mediaDL, m, locales, allPages); err != nil {
 			return err
@@ -937,6 +942,39 @@ func buildLQIPURL(baseURL string) string {
 		sep = "&"
 	}
 	return baseURL + sep + "w=32&q=20"
+}
+
+// ---------------------------------------------------------------------------
+// Locale resolution
+// ---------------------------------------------------------------------------
+
+// resolveDefaultLocale determines the effective default locale from the CMS
+// locales response. Returns the first locale marked as default, or falls
+// back to "en" if the API call failed or returned no locales.
+func resolveDefaultLocale(locales []SiteLocale, err error) string {
+	if err == nil {
+		for _, l := range locales {
+			if l.IsDefault {
+				return l.Code
+			}
+		}
+		if len(locales) > 0 {
+			return locales[0].Code
+		}
+	}
+	return "en"
+}
+
+// resolveLocale ensures a.config.Locale is set. If not explicitly
+// configured, it fetches the default locale from the CMS API.
+// Falls back to "en" if the API is unreachable.
+func (a *App) resolveLocale(ctx context.Context) {
+	if a.config.Locale != "" {
+		return
+	}
+	client := NewClient(a.config)
+	locales, err := client.ListLocales(ctx)
+	a.config.Locale = resolveDefaultLocale(locales, err)
 }
 
 // ---------------------------------------------------------------------------

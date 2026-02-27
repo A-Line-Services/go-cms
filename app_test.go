@@ -35,10 +35,10 @@ func TestNewApp_CreatesConfiguredApp(t *testing.T) {
 	}
 }
 
-func TestNewApp_DefaultLocale(t *testing.T) {
+func TestNewApp_DefaultLocale_Empty(t *testing.T) {
 	app := NewApp(Config{APIURL: "https://cms.test", SiteSlug: "s", APIKey: "k"})
-	if app.config.Locale != "en" {
-		t.Errorf("default Locale = %q, want 'en'", app.config.Locale)
+	if app.config.Locale != "" {
+		t.Errorf("default Locale = %q, want empty (auto-detected at build time)", app.config.Locale)
 	}
 }
 
