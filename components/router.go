@@ -181,7 +181,7 @@ if(!a||e.ctrlKey||e.metaKey||e.shiftKey||a.target==="_blank")return;
 try{
 var u=new URL(a.href,location.origin);
 if(u.origin!==location.origin)return;
-if(u.pathname===cur&&!u.hash)return;
+if(u.pathname===cur&&!u.hash){e.preventDefault();return}
 if(crossLocale(u.pathname))return;
 }catch(x){return}
 e.preventDefault();
