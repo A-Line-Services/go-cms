@@ -26,7 +26,7 @@ func lqipBgStyle(lqip string) string {
 	if lqip == "" {
 		return ""
 	}
-	return "background-size:cover;background-position:center;background-repeat:no-repeat;background-image:url('" + lqip + "')"
+	return "background-size:cover;background-position:center;background-repeat:no-repeat;background-image:url(" + lqip + ")"
 }
 
 // Image renders a CMS image field as a <picture> with:

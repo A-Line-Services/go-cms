@@ -158,7 +158,7 @@ old.replaceWith(s);
 });
 };
 
-if(d.startViewTransition){d.startViewTransition(swap)}else{swap()}
+var after=function(){
 if(push!==false)h.pushState({},"",url);
 cur=p;
 if(f.meta.t)d.title=f.meta.t;
@@ -172,6 +172,8 @@ else a.removeAttribute("aria-current");
 updateLangSwitcher(p);
 w.dispatchEvent(new CustomEvent("cms:navigate",{detail:{path:p}}));
 w.scrollTo(0,0);
+};
+if(d.startViewTransition){d.startViewTransition(swap).updateCallbackDone.then(after)}else{swap();after()}
 }).catch(function(){location.href=url});
 }
 
