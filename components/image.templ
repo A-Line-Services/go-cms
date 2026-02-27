@@ -137,11 +137,14 @@ templ ImageLink(p cms.PageData, key, label, urlKey string, fallback cms.ImageVal
 
 // ImageSized renders an image with a specific max display width, generating
 // a srcset with widths up to 2x the display size plus a sizes attribute.
-templ ImageSized(p cms.PageData, key, label string, displayWidth int, fallback cms.ImageValue) {
+// Additional MediaOption args (e.g. cms.Crop(), cms.Gravity("sm")) are
+// forwarded to the src URL for server-side processing.
+templ ImageSized(p cms.PageData, key, label string, displayWidth int, fallback cms.ImageValue, opts ...cms.MediaOption) {
 	@imageStyles()
 	@imageScript()
 	{{ img := p.ImageOr(key, fallback) }}
 	{{ widths := sizesForDisplay(displayWidth) }}
+	{{ srcOpts := append([]cms.MediaOption{cms.Width(displayWidth)}, opts...) }}
 	<picture data-cms-field={ key } data-cms-type="image" data-cms-label={ label }>
 		if img.HasFormat("avif") {
 			<source type="image/avif" srcset={ img.SrcSetFor("avif", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
@@ -150,7 +153,40 @@ templ ImageSized(p cms.PageData, key, label string, displayWidth int, fallback c
 			<source type="image/webp" srcset={ img.SrcSetFor("webp", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
 		}
 		<img
-			src={ img.Src(cms.Width(displayWidth)) }
+			src={ img.Src(srcOpts...) }
+			if img.SrcSet(widths...) != "" {
+				srcset={ img.SrcSet(widths...) }
+			}
+			sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }
+			alt={ img.Alt }
+			loading="lazy"
+			decoding="async"
+			class="cms-img"
+			if lqipBgStyle(img.LQIP()) != "" {
+				style={ templ.SafeCSS(lqipBgStyle(img.LQIP())) }
+			}
+		/>
+	</picture>
+}
+
+// ImageEntrySized renders a subcollection entry image with a specific max
+// display width. Like ImageSized, but for entries. Accepts additional
+// MediaOption args for crop/gravity control.
+templ ImageEntrySized(e cms.EntryData, key, label string, displayWidth int, fallback cms.ImageValue, opts ...cms.MediaOption) {
+	@imageStyles()
+	@imageScript()
+	{{ img := e.ImageOr(key, fallback) }}
+	{{ widths := sizesForDisplay(displayWidth) }}
+	{{ srcOpts := append([]cms.MediaOption{cms.Width(displayWidth)}, opts...) }}
+	<picture data-cms-field={ key } data-cms-type="image" data-cms-label={ label }>
+		if img.HasFormat("avif") {
+			<source type="image/avif" srcset={ img.SrcSetFor("avif", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
+		}
+		if img.HasFormat("webp") {
+			<source type="image/webp" srcset={ img.SrcSetFor("webp", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
+		}
+		<img
+			src={ img.Src(srcOpts...) }
 			if img.SrcSet(widths...) != "" {
 				srcset={ img.SrcSet(widths...) }
 			}

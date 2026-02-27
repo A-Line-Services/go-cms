@@ -33,6 +33,23 @@ templ indexContent(p cms.PageData) {
 		</div>
 	</section>
 	<section>
+		<h2>Team</h2>
+		<div class="team-grid" data-cms-subcollection="team" data-cms-label="Team Members">
+			for _, entry := range p.SubcollectionOr("team") {
+				<div class="team-member" data-cms-entry>
+					// Cropped to 200x200 square, smart gravity keeps the face centered.
+					@c.ImageEntrySized(entry, "photo", "Photo", 200, cms.ImageValue{
+						Alt: "Team member photo",
+					}, cms.Crop(), cms.Gravity("sm"))
+					<h3>
+						@c.TextEntry(entry, "name", "Name", "Jane Doe")
+					</h3>
+					@c.TextEntry(entry, "role", "Role", "Designer")
+				</div>
+			}
+		</div>
+	</section>
+	<section>
 		<h2>Partners</h2>
 		<div data-cms-subcollection="partners" data-cms-label="Partners">
 			for _, entry := range p.SubcollectionOr("partners") {

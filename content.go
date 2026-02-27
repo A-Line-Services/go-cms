@@ -781,6 +781,12 @@ func buildMediaURL(baseURL string, opts ...MediaOption) string {
 	if o.format != "" {
 		params = append(params, "format="+o.format)
 	}
+	if o.crop {
+		params = append(params, "crop=true")
+	}
+	if o.gravity != "" {
+		params = append(params, "gravity="+o.gravity)
+	}
 	if len(params) == 0 {
 		return baseURL
 	}

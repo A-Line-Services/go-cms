@@ -96,6 +96,8 @@ type requestOptions struct {
 	height  int
 	quality int
 	format  string
+	crop    bool   // use fill (crop-to-cover) instead of fit
+	gravity string // crop gravity: "sm" (smart), "ce" (center), "no" (north), etc.
 }
 
 // RequestOption configures an API request.
@@ -127,6 +129,28 @@ func Quality(q int) MediaOption {
 // Format sets the output format (webp, avif, png, jpeg) for an image.
 func Format(f string) MediaOption {
 	return func(o *requestOptions) { o.format = f }
+}
+
+// Crop enables fill mode (crop-to-cover) instead of the default fit mode.
+// When both width and height are set, the image is scaled to cover the
+// target dimensions and the overflow is cropped. Use with Gravity to
+// control which part of the image is kept.
+func Crop() MediaOption {
+	return func(o *requestOptions) { o.crop = true }
+}
+
+// Gravity sets the crop anchor point when using Crop(). Supported values:
+//
+//	"sm" — smart (content-aware, default when crop is enabled)
+//	"ce" — center
+//	"no" — north (top)
+//	"so" — south (bottom)
+//	"ea" — east (right)
+//	"we" — west (left)
+//	"noea" — north-east, "nowe" — north-west
+//	"soea" — south-east, "sowe" — south-west
+func Gravity(g string) MediaOption {
+	return func(o *requestOptions) { o.gravity = g }
 }
 
 // ---------------------------------------------------------------------------
