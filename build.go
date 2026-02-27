@@ -704,11 +704,22 @@ var (
 	cmsMetaRe = regexp.MustCompile(`\s*<meta\s+name="cms-[^"]*"\s+content="[^"]*"\s*/?>`)
 )
 
-// stripCMSAttributes removes all data-cms-* attributes and <meta name="cms-*">
-// tags from HTML, producing clean output for production serving.
+// stripCMSAttributes removes CMS-only data-cms-* attributes and
+// <meta name="cms-*"> tags from HTML, producing clean output for production.
+//
+// Form-related attributes (data-cms-form, data-cms-form-field) are preserved
+// because client-side JS needs them to locate forms and collect field values
+// during submission.
 func stripCMSAttributes(html string) string {
 	html = cmsMetaRe.ReplaceAllString(html, "")
-	html = cmsAttrRe.ReplaceAllString(html, "")
+	html = cmsAttrRe.ReplaceAllStringFunc(html, func(match string) string {
+		trimmed := strings.TrimSpace(match)
+		if strings.HasPrefix(trimmed, "data-cms-form=") ||
+			strings.HasPrefix(trimmed, "data-cms-form-field=") {
+			return match
+		}
+		return ""
+	})
 	return html
 }
 

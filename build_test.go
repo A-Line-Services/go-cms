@@ -890,6 +890,36 @@ func TestStripCMSAttributes_RemovesSectionAndFieldAttrs(t *testing.T) {
 	}
 }
 
+func TestStripCMSAttributes_PreservesFormAttrs(t *testing.T) {
+	input := `<form data-cms-form="contact" data-cms-label="Contact Form" class="mt-12">` +
+		`<input data-cms-form-field="name" data-cms-label="Full Name" data-cms-type="text" data-cms-required id="name">` +
+		`<input data-cms-form-field="email" data-cms-type="email" type="email">` +
+		`</form>`
+	got := stripCMSAttributes(input)
+
+	// data-cms-form and data-cms-form-field must survive (needed by client JS)
+	if !strings.Contains(got, `data-cms-form="contact"`) {
+		t.Errorf("expected data-cms-form preserved, got: %q", got)
+	}
+	if !strings.Contains(got, `data-cms-form-field="name"`) {
+		t.Errorf("expected data-cms-form-field='name' preserved, got: %q", got)
+	}
+	if !strings.Contains(got, `data-cms-form-field="email"`) {
+		t.Errorf("expected data-cms-form-field='email' preserved, got: %q", got)
+	}
+
+	// Other CMS attrs must still be stripped
+	if strings.Contains(got, "data-cms-label") {
+		t.Errorf("expected data-cms-label stripped, got: %q", got)
+	}
+	if strings.Contains(got, "data-cms-type") {
+		t.Errorf("expected data-cms-type stripped, got: %q", got)
+	}
+	if strings.Contains(got, "data-cms-required") {
+		t.Errorf("expected data-cms-required stripped, got: %q", got)
+	}
+}
+
 func TestBuild_SectionAttrs_StrippedFromProduction_PreservedInTemplate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
