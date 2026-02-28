@@ -149,6 +149,7 @@ func TestClient_GetSEO_ReturnsData(t *testing.T) {
 			MetaTitle:       "About — My Site",
 			MetaDescription: "Learn more about us",
 			OGImageURL:      "https://cdn.test/og.jpg",
+			Keywords:        "about, company, team",
 		})
 	}))
 
@@ -165,6 +166,59 @@ func TestClient_GetSEO_ReturnsData(t *testing.T) {
 	}
 	if seo.OGImageURL != "https://cdn.test/og.jpg" {
 		t.Errorf("OGImageURL = %q", seo.OGImageURL)
+	}
+	if seo.Keywords != "about, company, team" {
+		t.Errorf("Keywords = %q", seo.Keywords)
+	}
+}
+
+func TestClient_GetSiteInfo_ReturnsSiteNameAndDefaultOGImage(t *testing.T) {
+	siteName := "My Site"
+	ogImage := "https://cdn.test/default-og.jpg"
+	client := mockCMS(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/test-site/site" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(apiSiteResponse{
+			Name:              "My Site",
+			Slug:              "my-site",
+			SiteName:          &siteName,
+			DefaultOGImageURL: &ogImage,
+		})
+	}))
+
+	info, err := client.GetSiteInfo(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Name != "My Site" {
+		t.Errorf("Name = %q", info.Name)
+	}
+	if info.SiteName == nil || *info.SiteName != "My Site" {
+		t.Errorf("SiteName = %v", info.SiteName)
+	}
+	if info.DefaultOGImageURL == nil || *info.DefaultOGImageURL != "https://cdn.test/default-og.jpg" {
+		t.Errorf("DefaultOGImageURL = %v", info.DefaultOGImageURL)
+	}
+}
+
+func TestClient_GetSiteInfo_NilOptionalFields(t *testing.T) {
+	client := mockCMS(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(apiSiteResponse{
+			Name: "My Site",
+			Slug: "my-site",
+		})
+	}))
+
+	info, err := client.GetSiteInfo(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.SiteName != nil {
+		t.Errorf("SiteName = %v, want nil", info.SiteName)
+	}
+	if info.DefaultOGImageURL != nil {
+		t.Errorf("DefaultOGImageURL = %v, want nil", info.DefaultOGImageURL)
 	}
 }
 

@@ -24,6 +24,7 @@ type SEOData struct {
 	MetaTitle       string
 	MetaDescription string
 	OGImageURL      string
+	Keywords        string
 }
 
 // ImageValue represents a CMS image field value.
@@ -156,6 +157,14 @@ type PageData struct {
 	// layoutManifest maps layout path prefixes to layout IDs.
 	// Set by the build pipeline when layouts are registered.
 	layoutManifest map[string]string
+
+	// siteName is the site-level name used as a title suffix (e.g. "My Company").
+	// When set, SEOHead renders: <title>{MetaTitle} | {SiteName}</title>
+	siteName string
+
+	// defaultOGImageURL is the site-level fallback OG image URL.
+	// Used by SEOHead when the page has no page-level og:image.
+	defaultOGImageURL string
 }
 
 // NewPageData creates a PageData with the given content.
@@ -461,6 +470,42 @@ func (p PageData) SEO() SEOData {
 		return SEOData{}
 	}
 	return *p.seo
+}
+
+// SiteName returns the site-level name (used as title suffix).
+// Returns "" if not configured.
+func (p PageData) SiteName() string {
+	return p.siteName
+}
+
+// DefaultOGImageURL returns the site-level fallback OG image URL.
+// Returns "" if not configured.
+func (p PageData) DefaultOGImageURL() string {
+	return p.defaultOGImageURL
+}
+
+// EffectiveOGImageURL returns the page's OG image URL if set,
+// otherwise falls back to the site-level default OG image URL.
+func (p PageData) EffectiveOGImageURL() string {
+	if p.SEO().OGImageURL != "" {
+		return p.SEO().OGImageURL
+	}
+	return p.defaultOGImageURL
+}
+
+// EffectiveTitle returns the meta title with the site name suffix appended
+// when both are set. Format: "Page Title | Site Name".
+// If only the meta title is set, returns it without suffix.
+// If only the site name is set (no meta title), returns just the site name.
+func (p PageData) EffectiveTitle() string {
+	title := p.SEO().MetaTitle
+	if title != "" && p.siteName != "" {
+		return title + " | " + p.siteName
+	}
+	if title != "" {
+		return title
+	}
+	return p.siteName
 }
 
 // setEntryImageProcessor recursively sets the image processor on all

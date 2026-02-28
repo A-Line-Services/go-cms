@@ -194,6 +194,7 @@ func TestPageData_SEO_ReturnsData(t *testing.T) {
 		MetaTitle:       "My Page Title",
 		MetaDescription: "A description",
 		OGImageURL:      "https://example.com/og.jpg",
+		Keywords:        "go, cms, test",
 	}
 	p := NewPageData("/", "home", "en", nil, nil, seo)
 
@@ -207,14 +208,107 @@ func TestPageData_SEO_ReturnsData(t *testing.T) {
 	if got.OGImageURL != "https://example.com/og.jpg" {
 		t.Errorf("SEO().OGImageURL = %q", got.OGImageURL)
 	}
+	if got.Keywords != "go, cms, test" {
+		t.Errorf("SEO().Keywords = %q", got.Keywords)
+	}
 }
 
 func TestPageData_SEO_Nil_ReturnsZero(t *testing.T) {
 	p := NewPageData("/", "home", "en", nil, nil, nil)
 
 	got := p.SEO()
-	if got.MetaTitle != "" || got.MetaDescription != "" || got.OGImageURL != "" {
+	if got.MetaTitle != "" || got.MetaDescription != "" || got.OGImageURL != "" || got.Keywords != "" {
 		t.Errorf("SEO() = %+v, want zero", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SiteName, DefaultOGImageURL, EffectiveTitle, EffectiveOGImageURL
+// ---------------------------------------------------------------------------
+
+func TestPageData_SiteName_Empty(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	if got := p.SiteName(); got != "" {
+		t.Errorf("SiteName() = %q, want empty", got)
+	}
+}
+
+func TestPageData_SiteName_Set(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	p.siteName = "My Company"
+	if got := p.SiteName(); got != "My Company" {
+		t.Errorf("SiteName() = %q, want 'My Company'", got)
+	}
+}
+
+func TestPageData_DefaultOGImageURL_Empty(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	if got := p.DefaultOGImageURL(); got != "" {
+		t.Errorf("DefaultOGImageURL() = %q, want empty", got)
+	}
+}
+
+func TestPageData_DefaultOGImageURL_Set(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	p.defaultOGImageURL = "https://example.com/default-og.jpg"
+	if got := p.DefaultOGImageURL(); got != "https://example.com/default-og.jpg" {
+		t.Errorf("DefaultOGImageURL() = %q", got)
+	}
+}
+
+func TestPageData_EffectiveTitle_TitleAndSiteName(t *testing.T) {
+	seo := &SEOData{MetaTitle: "About Us"}
+	p := NewPageData("/about", "about", "en", nil, nil, seo)
+	p.siteName = "My Company"
+	if got := p.EffectiveTitle(); got != "About Us | My Company" {
+		t.Errorf("EffectiveTitle() = %q, want 'About Us | My Company'", got)
+	}
+}
+
+func TestPageData_EffectiveTitle_TitleOnly(t *testing.T) {
+	seo := &SEOData{MetaTitle: "About Us"}
+	p := NewPageData("/about", "about", "en", nil, nil, seo)
+	if got := p.EffectiveTitle(); got != "About Us" {
+		t.Errorf("EffectiveTitle() = %q, want 'About Us'", got)
+	}
+}
+
+func TestPageData_EffectiveTitle_SiteNameOnly(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	p.siteName = "My Company"
+	if got := p.EffectiveTitle(); got != "My Company" {
+		t.Errorf("EffectiveTitle() = %q, want 'My Company'", got)
+	}
+}
+
+func TestPageData_EffectiveTitle_Neither(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	if got := p.EffectiveTitle(); got != "" {
+		t.Errorf("EffectiveTitle() = %q, want empty", got)
+	}
+}
+
+func TestPageData_EffectiveOGImageURL_PageImage(t *testing.T) {
+	seo := &SEOData{OGImageURL: "https://example.com/page-og.jpg"}
+	p := NewPageData("/", "home", "en", nil, nil, seo)
+	p.defaultOGImageURL = "https://example.com/default-og.jpg"
+	if got := p.EffectiveOGImageURL(); got != "https://example.com/page-og.jpg" {
+		t.Errorf("EffectiveOGImageURL() = %q, want page-level image", got)
+	}
+}
+
+func TestPageData_EffectiveOGImageURL_FallbackToDefault(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	p.defaultOGImageURL = "https://example.com/default-og.jpg"
+	if got := p.EffectiveOGImageURL(); got != "https://example.com/default-og.jpg" {
+		t.Errorf("EffectiveOGImageURL() = %q, want default image", got)
+	}
+}
+
+func TestPageData_EffectiveOGImageURL_NoImage(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	if got := p.EffectiveOGImageURL(); got != "" {
+		t.Errorf("EffectiveOGImageURL() = %q, want empty", got)
 	}
 }
 

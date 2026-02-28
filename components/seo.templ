@@ -6,17 +6,31 @@ import cms "go.a-line.be/cms"
 // When the page has multiple locales configured, it also renders
 // <link rel="alternate" hreflang="..."> tags for each locale
 // and an x-default hreflang pointing to the unprefixed root path.
+//
+// Site-level fields:
+//   - SiteName: appended as " | {SiteName}" to the <title>, and rendered
+//     as <meta property="og:site_name">.
+//   - DefaultOGImageURL: used as fallback og:image when the page has none.
+//
+// Per-page fields:
+//   - Keywords: rendered as <meta name="keywords"> when non-empty.
 templ SEOHead(p cms.PageData) {
-	if p.SEO().MetaTitle != "" {
-		<title>{ p.SEO().MetaTitle }</title>
+	if p.EffectiveTitle() != "" {
+		<title>{ p.EffectiveTitle() }</title>
 		<meta property="og:title" content={ p.SEO().MetaTitle }/>
 	}
 	if p.SEO().MetaDescription != "" {
 		<meta name="description" content={ p.SEO().MetaDescription }/>
 		<meta property="og:description" content={ p.SEO().MetaDescription }/>
 	}
-	if p.SEO().OGImageURL != "" {
-		<meta property="og:image" content={ p.SEO().OGImageURL }/>
+	if p.EffectiveOGImageURL() != "" {
+		<meta property="og:image" content={ p.EffectiveOGImageURL() }/>
+	}
+	if p.SiteName() != "" {
+		<meta property="og:site_name" content={ p.SiteName() }/>
+	}
+	if p.SEO().Keywords != "" {
+		<meta name="keywords" content={ p.SEO().Keywords }/>
 	}
 	if len(p.Locales) > 1 {
 		for _, locale := range p.Locales {

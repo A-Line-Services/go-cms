@@ -143,8 +143,31 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		}
 	}
 
+	// Fetch site info for sitemap URL, site name, and default OG image.
+	siteInfo, siteInfoErr := client.GetSiteInfo(ctx)
+
+	// Propagate site-level SEO defaults to all pages via the app.
+	var siteName, defaultOGImageURL string
+	if siteInfoErr == nil && siteInfo != nil {
+		if siteInfo.SiteName != nil {
+			siteName = *siteInfo.SiteName
+		}
+		if siteInfo.DefaultOGImageURL != nil {
+			defaultOGImageURL = *siteInfo.DefaultOGImageURL
+		}
+	}
+	a.siteName = siteName
+	a.defaultOGImageURL = defaultOGImageURL
+
+	// Download the default OG image so fallback og:image tags use a local path.
+	if mediaDL != nil && defaultOGImageURL != "" {
+		if local, err := mediaDL.download(defaultOGImageURL); err == nil {
+			a.defaultOGImageURL = local
+		}
+	}
+
 	// Generate sitemap.xml and robots.txt when we know the public URL.
-	siteURL := a.resolveSiteURL(ctx, client)
+	siteURL := a.resolveSiteURLFromInfo(siteInfo, siteInfoErr)
 	if siteURL != "" {
 		var defaultLocale string
 		if multiLocale {
@@ -176,14 +199,13 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 	return nil
 }
 
-// resolveSiteURL determines the public site URL for sitemap generation.
-// It uses Config.SiteURL if set, otherwise fetches the domain from the CMS.
-func (a *App) resolveSiteURL(ctx context.Context, client *Client) string {
+// resolveSiteURLFromInfo determines the public site URL for sitemap generation.
+// It uses Config.SiteURL if set, otherwise uses the domain from the already-fetched site info.
+func (a *App) resolveSiteURLFromInfo(info *apiSiteResponse, fetchErr error) string {
 	if a.config.SiteURL != "" {
 		return a.config.SiteURL
 	}
-	info, err := client.GetSiteInfo(ctx)
-	if err != nil || info.Domain == nil || *info.Domain == "" {
+	if fetchErr != nil || info == nil || info.Domain == nil || *info.Domain == "" {
 		return ""
 	}
 	domain := *info.Domain
@@ -216,6 +238,8 @@ func (a *App) buildSingleLocale(ctx context.Context, client *Client, opts BuildO
 	for _, r := range results {
 		page := r.page
 		page.layoutManifest = manifest
+		page.siteName = a.siteName
+		page.defaultOGImageURL = a.defaultOGImageURL
 
 		// Attach listings to non-entry, non-template pages.
 		if r.job.collKey == "" && !r.job.isTemplate && len(listings) > 0 {
@@ -290,6 +314,8 @@ func (a *App) writeLocaleResults(opts BuildOptions, m *minify.M, results []fetch
 		page.defaultLocale = defaultLocale
 		page.localePrefix = prefix
 		page.layoutManifest = manifest
+		page.siteName = a.siteName
+		page.defaultOGImageURL = a.defaultOGImageURL
 
 		if prefix != "" {
 			page.Path = localePrefixPath(prefix, page.Path)
@@ -460,6 +486,10 @@ func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOption
 		}
 	}
 
+	// Attach site-level SEO defaults.
+	page.siteName = a.siteName
+	page.defaultOGImageURL = a.defaultOGImageURL
+
 	// Attach collection listings so index pages can iterate entries.
 	if len(listings) > 0 {
 		page.listings = listings
@@ -579,8 +609,8 @@ func (a *App) writePageFragments(opts BuildOptions, m *minify.M, page PageData) 
 		return nil
 	}
 
-	// Extract title for route metadata.
-	title := page.SEO().MetaTitle
+	// Extract title for route metadata (includes site name suffix).
+	title := page.EffectiveTitle()
 	if title == "" {
 		title = page.Slug
 	}

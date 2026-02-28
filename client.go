@@ -53,6 +53,7 @@ type apiSEOResponse struct {
 	MetaTitle       string `json:"meta_title"`
 	MetaDescription string `json:"meta_description"`
 	OGImageURL      string `json:"og_image_url"`
+	Keywords        string `json:"keywords"`
 }
 
 type apiMediaResponse struct {
@@ -74,10 +75,12 @@ type apiLocaleResponse struct {
 }
 
 type apiSiteResponse struct {
-	Name          string  `json:"name"`
-	Slug          string  `json:"slug"`
-	Domain        *string `json:"domain"`
-	DefaultLocale string  `json:"default_locale"`
+	Name              string  `json:"name"`
+	Slug              string  `json:"slug"`
+	Domain            *string `json:"domain"`
+	DefaultLocale     string  `json:"default_locale"`
+	SiteName          *string `json:"site_name"`
+	DefaultOGImageURL *string `json:"default_og_image_url"`
 }
 
 type apiEmailFieldValue struct {
@@ -300,6 +303,7 @@ func (c *Client) GetSEO(ctx context.Context, pagePath string, opts ...RequestOpt
 		MetaTitle:       resp.MetaTitle,
 		MetaDescription: resp.MetaDescription,
 		OGImageURL:      resp.OGImageURL,
+		Keywords:        resp.Keywords,
 	}, nil
 }
 

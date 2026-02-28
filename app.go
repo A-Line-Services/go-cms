@@ -122,6 +122,10 @@ type App struct {
 	collections []collectionDef
 	emails      []emailTemplateDef
 	layouts     []layoutDef
+
+	// Site-level SEO defaults, populated during Build from the CMS API.
+	siteName          string
+	defaultOGImageURL string
 }
 
 // NewApp creates a new App with the given configuration.
