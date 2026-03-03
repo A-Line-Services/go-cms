@@ -10,3 +10,5 @@ dist/
 
 # Environment
 .env
+
+generate
