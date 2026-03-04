@@ -273,6 +273,13 @@ templ ImageCard(img cms.ImageValue) {
 templ imageStyles() {
 	@imageStylesOnce.Once() {
 		<style>
+			picture:has(> .cms-img) {
+				/* Remove <picture> from the layout tree so the <img> sizes
+				   itself against the actual container. Without this, <picture>
+				   is display:inline and percentage width/height on the <img>
+				   can't resolve, making the LQIP background invisible (0×0). */
+				display: contents;
+			}
 			.cms-img {
 				/* Ensure image covers the background placeholder */
 				object-fit: cover;
