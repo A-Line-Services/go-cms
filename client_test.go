@@ -360,4 +360,105 @@ func TestClient_ListLocales_Error(t *testing.T) {
 	}
 }
 
+func TestClient_GetSEOConfig_SendsLocale(t *testing.T) {
+	var gotLocale string
+	client := mockCMS(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLocale = r.URL.Query().Get("locale")
+		json.NewEncoder(w).Encode(apiSEOConfigResponse{
+			BusinessName: "Mon Entreprise",
+			BusinessType: "LocalBusiness",
+		})
+	}))
+
+	cfg, err := client.GetSEOConfig(context.Background(), WithLocale("fr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotLocale != "fr" {
+		t.Errorf("locale = %q, want fr", gotLocale)
+	}
+	if cfg.BusinessName != "Mon Entreprise" {
+		t.Errorf("BusinessName = %q, want Mon Entreprise", cfg.BusinessName)
+	}
+}
+
+func TestClient_GetSEOConfig_DefaultsToConfigLocale(t *testing.T) {
+	var gotLocale string
+	client := mockCMS(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLocale = r.URL.Query().Get("locale")
+		json.NewEncoder(w).Encode(apiSEOConfigResponse{
+			BusinessType: "LocalBusiness",
+		})
+	}))
+
+	_, err := client.GetSEOConfig(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotLocale != "en" {
+		t.Errorf("locale = %q, want en (client default)", gotLocale)
+	}
+}
+
+func TestClient_GetSEOConfig_ParsesAllFields(t *testing.T) {
+	lat := 52.37
+	lng := 4.89
+	client := mockCMS(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(apiSEOConfigResponse{
+			SiteName:               "My Site",
+			DefaultOGImageURL:      "https://cdn.test/og.jpg",
+			BusinessName:           "My Business",
+			BusinessType:           "InteriorDesigner",
+			StreetAddress:          "123 Main St",
+			AddressLocality:        "Amsterdam",
+			AddressRegion:          "NH",
+			PostalCode:             "1012AB",
+			AddressCountry:         "NL",
+			Phone:                  "+31123456789",
+			Email:                  "info@test.com",
+			GeoLat:                 &lat,
+			GeoLng:                 &lng,
+			PriceRange:             "€€",
+			OwnerName:              "Jane Doe",
+			OwnerJobTitle:          "Designer",
+			OwnerDescription:       "Expert designer",
+			DefaultMetaTitle:       "Welcome",
+			DefaultMetaDescription: "A great site",
+			DefaultKeywords:        "design, interior",
+			ServiceAreas:           jsonRaw(`["Amsterdam","Rotterdam"]`),
+			OpeningHours:           jsonRaw(`[{"days":"Mo-Fr","opens":"09:00","closes":"17:00"}]`),
+			OwnerSameAs:            jsonRaw(`["https://linkedin.com/in/jane"]`),
+			Services:               jsonRaw(`[{"name":"Consulting","description":"We consult"}]`),
+			SocialProfiles:         jsonRaw(`["https://twitter.com/mybiz"]`),
+		})
+	}))
+
+	cfg, err := client.GetSEOConfig(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BusinessName != "My Business" {
+		t.Errorf("BusinessName = %q", cfg.BusinessName)
+	}
+	if cfg.OwnerJobTitle != "Designer" {
+		t.Errorf("OwnerJobTitle = %q", cfg.OwnerJobTitle)
+	}
+	if cfg.DefaultMetaTitle != "Welcome" {
+		t.Errorf("DefaultMetaTitle = %q", cfg.DefaultMetaTitle)
+	}
+	if len(cfg.ServiceAreas) != 2 {
+		t.Errorf("ServiceAreas = %v", cfg.ServiceAreas)
+	}
+	if len(cfg.Services) != 1 || cfg.Services[0].Name != "Consulting" {
+		t.Errorf("Services = %v", cfg.Services)
+	}
+	if cfg.GeoLat == nil || *cfg.GeoLat != 52.37 {
+		t.Errorf("GeoLat = %v", cfg.GeoLat)
+	}
+}
+
+func jsonRaw(s string) json.RawMessage {
+	return json.RawMessage(s)
+}
+
 // jsonVal is defined in build_test.go

@@ -276,9 +276,18 @@ func (c *Client) GetSiteInfo(ctx context.Context) (*apiSiteResponse, error) {
 }
 
 // GetSEOConfig fetches the site-wide SEO and business information.
-func (c *Client) GetSEOConfig(ctx context.Context) (*SiteSEOConfig, error) {
+// Pass WithLocale to get locale-specific translations (business name,
+// meta title/description, services, etc.) merged with shared fields.
+// Without WithLocale, the CMS returns translations for the site's default locale.
+func (c *Client) GetSEOConfig(ctx context.Context, opts ...RequestOption) (*SiteSEOConfig, error) {
+	o := &requestOptions{locale: c.config.Locale}
+	for _, fn := range opts {
+		fn(o)
+	}
+
+	path := fmt.Sprintf("/seo-config?locale=%s", o.locale)
 	var resp apiSEOConfigResponse
-	if err := c.do(ctx, "/seo-config", &resp); err != nil {
+	if err := c.do(ctx, path, &resp); err != nil {
 		return nil, err
 	}
 	cfg := &SiteSEOConfig{

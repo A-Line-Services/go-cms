@@ -119,6 +119,45 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		a.config.Locale = resolveDefaultLocale(locales, localeErr)
 	}
 
+	// ── Fetch site-level metadata BEFORE building pages ──────────────────
+	// (These values are needed during rendering for SEO head, JSON-LD, etc.)
+
+	// Fetch site info for site name, default OG image, and site URL.
+	siteInfo, siteInfoErr := client.GetSiteInfo(ctx)
+
+	var siteName, defaultOGImageURL string
+	if siteInfoErr == nil && siteInfo != nil {
+		if siteInfo.SiteName != nil {
+			siteName = *siteInfo.SiteName
+		}
+		if siteInfo.DefaultOGImageURL != nil {
+			defaultOGImageURL = *siteInfo.DefaultOGImageURL
+		}
+	}
+	a.siteName = siteName
+	a.defaultOGImageURL = defaultOGImageURL
+
+	// Download the default OG image so fallback og:image tags use a local path.
+	if mediaDL != nil && defaultOGImageURL != "" {
+		if local, err := mediaDL.download(defaultOGImageURL); err == nil {
+			a.defaultOGImageURL = local
+		}
+	}
+
+	// Resolve site URL (needed for canonical URLs, og:url, sitemap).
+	siteURL := a.resolveSiteURLFromInfo(siteInfo, siteInfoErr)
+	a.siteURL = strings.TrimRight(siteURL, "/")
+
+	// Fetch SEO config for the default locale (used by single-locale builds
+	// and as the fallback for multi-locale).
+	seoConfig, seoConfigErr := client.GetSEOConfig(ctx, WithLocale(a.config.Locale))
+	if seoConfigErr == nil && seoConfig != nil {
+		a.seoConfig = seoConfig
+		fmt.Fprintf(os.Stderr, "  [ok]   SEO config fetched\n")
+	}
+
+	// ── Build pages ──────────────────────────────────────────────────────
+
 	if multiLocale {
 		if err := a.buildMultiLocale(ctx, client, opts, imgProc, mediaDL, m, locales, allPages); err != nil {
 			return err
@@ -143,39 +182,8 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		}
 	}
 
-	// Fetch site info for sitemap URL, site name, and default OG image.
-	siteInfo, siteInfoErr := client.GetSiteInfo(ctx)
-
-	// Propagate site-level SEO defaults to all pages via the app.
-	var siteName, defaultOGImageURL string
-	if siteInfoErr == nil && siteInfo != nil {
-		if siteInfo.SiteName != nil {
-			siteName = *siteInfo.SiteName
-		}
-		if siteInfo.DefaultOGImageURL != nil {
-			defaultOGImageURL = *siteInfo.DefaultOGImageURL
-		}
-	}
-	a.siteName = siteName
-	a.defaultOGImageURL = defaultOGImageURL
-
-	// Download the default OG image so fallback og:image tags use a local path.
-	if mediaDL != nil && defaultOGImageURL != "" {
-		if local, err := mediaDL.download(defaultOGImageURL); err == nil {
-			a.defaultOGImageURL = local
-		}
-	}
-
-	// Fetch site-wide SEO config (business info, person, services).
-	seoConfig, seoConfigErr := client.GetSEOConfig(ctx)
-	if seoConfigErr == nil && seoConfig != nil {
-		a.seoConfig = seoConfig
-		fmt.Fprintf(os.Stderr, "  [ok]   SEO config fetched\n")
-	}
-
 	// Generate sitemap.xml and robots.txt when we know the public URL.
-	siteURL := a.resolveSiteURLFromInfo(siteInfo, siteInfoErr)
-	a.siteURL = strings.TrimRight(siteURL, "/")
+	// (siteURL was resolved above before building pages.)
 	if siteURL != "" {
 		var defaultLocale string
 		if multiLocale {
@@ -285,17 +293,24 @@ func (a *App) buildMultiLocale(ctx context.Context, client *Client, opts BuildOp
 
 		fmt.Fprintf(os.Stderr, "building locale %s (%s)...\n", locale.Code, locale.Label)
 
+		// Fetch locale-specific SEO config (translatable fields like
+		// business_name, meta title, services come back in this locale).
+		localeSEO := a.seoConfig // fallback to default-locale config
+		if cfg, err := client.GetSEOConfig(ctx, WithLocale(locale.Code)); err == nil && cfg != nil {
+			localeSEO = cfg
+		}
+
 		// Fetch content for this locale.
 		results := a.fetchAllForLocale(ctx, client, jobs, locale.Code, imgProc, mediaDL)
 
 		// Build prefixed version: /en/about, /nl/about, etc.
-		if err := a.writeLocaleResults(opts, m, results, prefix, locales, defaultLocale); err != nil {
+		if err := a.writeLocaleResults(opts, m, results, prefix, locales, defaultLocale, localeSEO); err != nil {
 			return err
 		}
 
 		// For the default locale, also build at root paths (no prefix).
 		if locale.IsDefault {
-			if err := a.writeLocaleResults(opts, m, results, "", locales, defaultLocale); err != nil {
+			if err := a.writeLocaleResults(opts, m, results, "", locales, defaultLocale, localeSEO); err != nil {
 				return err
 			}
 		}
@@ -306,7 +321,8 @@ func (a *App) buildMultiLocale(ctx context.Context, client *Client, opts BuildOp
 
 // writeLocaleResults applies locale metadata to fetch results and writes them to disk.
 // prefix is the locale URL prefix (e.g. "/en") or "" for the default-locale root build.
-func (a *App) writeLocaleResults(opts BuildOptions, m *minify.M, results []fetchResult, prefix string, locales []SiteLocale, defaultLocale string) error {
+// localeSEO is the locale-specific SEO config (with translated business name, services, etc.).
+func (a *App) writeLocaleResults(opts BuildOptions, m *minify.M, results []fetchResult, prefix string, locales []SiteLocale, defaultLocale string, localeSEO *SiteSEOConfig) error {
 	// Apply locale metadata and build locale-prefixed paths.
 	// We work on copies to avoid mutating the originals (needed when the same
 	// results are written twice: once prefixed, once at root for the default locale).
@@ -327,7 +343,7 @@ func (a *App) writeLocaleResults(opts BuildOptions, m *minify.M, results []fetch
 		page.siteName = a.siteName
 		page.defaultOGImageURL = a.defaultOGImageURL
 		page.siteURL = a.siteURL
-		page.seoConfig = a.seoConfig
+		page.seoConfig = localeSEO
 
 		if prefix != "" {
 			page.Path = localePrefixPath(prefix, page.Path)
