@@ -31,3 +31,24 @@ templ TextEntry(e cms.EntryData, key, label, fallback string) {
 		{ e.TextOr(key, fallback) }
 	</span>
 }
+
+// TextValue returns the CMS text value as a plain string for use in HTML
+// attributes (e.g. placeholder, title, aria-label). Unlike Text(), this does
+// not render any HTML element — it just returns the resolved string value.
+func TextValue(p cms.PageData, key, fallback string) string {
+	return p.TextOr(key, fallback)
+}
+
+// Placeholder renders a visually-hidden CMS-discoverable field whose value
+// can be used for HTML attributes like placeholder. Place this inside the
+// same section as the target element and use TextValue() for the attribute.
+//
+// Example:
+//
+//	@c.Placeholder(p, "email_ph", "E-mail Placeholder", "uw@email.be")
+//	<input placeholder={ c.TextValue(p, "email_ph", "uw@email.be") } />
+templ Placeholder(p cms.PageData, key, label, fallback string) {
+	<span data-cms-field={ key } data-cms-type="text" data-cms-label={ label } aria-hidden="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap">
+		{ p.TextOr(key, fallback) }
+	</span>
+}
