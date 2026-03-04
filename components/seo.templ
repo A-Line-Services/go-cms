@@ -3,17 +3,8 @@ package components
 import cms "go.a-line.be/cms"
 
 // SEOHead renders SEO meta tags in the <head> from CMS data.
-// When the page has multiple locales configured, it also renders
-// <link rel="alternate" hreflang="..."> tags for each locale
-// and an x-default hreflang pointing to the unprefixed root path.
-//
-// Site-level fields:
-//   - SiteName: appended as " | {SiteName}" to the <title>, and rendered
-//     as <meta property="og:site_name">.
-//   - DefaultOGImageURL: used as fallback og:image when the page has none.
-//
-// Per-page fields:
-//   - Keywords: rendered as <meta name="keywords"> when non-empty.
+// Includes: title, description, OG tags, canonical URL, hreflang alternates,
+// and auto-generated JSON-LD structured data when SEO config is available.
 templ SEOHead(p cms.PageData) {
 	if p.EffectiveTitle() != "" {
 		<title>{ p.EffectiveTitle() }</title>
@@ -32,10 +23,48 @@ templ SEOHead(p cms.PageData) {
 	if p.SEO().Keywords != "" {
 		<meta name="keywords" content={ p.SEO().Keywords }/>
 	}
+	// Canonical URL
+	if p.CanonicalURL() != "" {
+		<link rel="canonical" href={ p.CanonicalURL() }/>
+		<meta property="og:url" content={ p.CanonicalURL() }/>
+	}
+	// OG type and locale
+	<meta property="og:type" content="website"/>
+	if p.Locale != "" {
+		<meta property="og:locale" content={ p.Locale }/>
+	}
+	// Hreflang alternates
 	if len(p.Locales) > 1 {
 		for _, locale := range p.Locales {
 			<link rel="alternate" hreflang={ locale.Code } href={ p.PrefixedAlternatePath(locale.Code) }/>
 		}
 		<link rel="alternate" hreflang="x-default" href={ p.ContentPath() }/>
+	}
+	// Auto-generate JSON-LD schemas from SEO config
+	if p.SEOConfig() != nil {
+		if p.SEOConfig().HasBusiness() {
+			@SchemaLocalBusiness(p)
+		}
+		if p.SEOConfig().HasOwner() {
+			@SchemaPerson(p)
+		}
+		if p.SEOConfig().HasServices() {
+			@SchemaServices(p)
+		}
+		@SchemaWebSite(p)
+		@SchemaBreadcrumb(p)
+	}
+}
+
+// PreloadImage emits a <link rel="preload"> for a CMS image field.
+// Call this in <head> for above-the-fold hero images.
+templ PreloadImage(p cms.PageData, fieldKey string, fallback cms.ImageValue) {
+	if img := p.ImageOr(fieldKey, fallback); img.Src() != "" {
+		<link
+			rel="preload"
+			as="image"
+			href={ img.Src() }
+			imagesrcset={ img.SrcSet(1600) }
+		/>
 	}
 }

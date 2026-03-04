@@ -166,8 +166,16 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		}
 	}
 
+	// Fetch site-wide SEO config (business info, person, services).
+	seoConfig, seoConfigErr := client.GetSEOConfig(ctx)
+	if seoConfigErr == nil && seoConfig != nil {
+		a.seoConfig = seoConfig
+		fmt.Fprintf(os.Stderr, "  [ok]   SEO config fetched\n")
+	}
+
 	// Generate sitemap.xml and robots.txt when we know the public URL.
 	siteURL := a.resolveSiteURLFromInfo(siteInfo, siteInfoErr)
+	a.siteURL = strings.TrimRight(siteURL, "/")
 	if siteURL != "" {
 		var defaultLocale string
 		if multiLocale {
@@ -240,6 +248,8 @@ func (a *App) buildSingleLocale(ctx context.Context, client *Client, opts BuildO
 		page.layoutManifest = manifest
 		page.siteName = a.siteName
 		page.defaultOGImageURL = a.defaultOGImageURL
+		page.siteURL = a.siteURL
+		page.seoConfig = a.seoConfig
 
 		// Attach listings to non-entry, non-template pages.
 		if r.job.collKey == "" && !r.job.isTemplate && len(listings) > 0 {
@@ -316,6 +326,8 @@ func (a *App) writeLocaleResults(opts BuildOptions, m *minify.M, results []fetch
 		page.layoutManifest = manifest
 		page.siteName = a.siteName
 		page.defaultOGImageURL = a.defaultOGImageURL
+		page.siteURL = a.siteURL
+		page.seoConfig = a.seoConfig
 
 		if prefix != "" {
 			page.Path = localePrefixPath(prefix, page.Path)
@@ -489,6 +501,8 @@ func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOption
 	// Attach site-level SEO defaults.
 	page.siteName = a.siteName
 	page.defaultOGImageURL = a.defaultOGImageURL
+	page.siteURL = a.siteURL
+	page.seoConfig = a.seoConfig
 
 	// Attach collection listings so index pages can iterate entries.
 	if len(listings) > 0 {

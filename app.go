@@ -126,6 +126,8 @@ type App struct {
 	// Site-level SEO defaults, populated during Build from the CMS API.
 	siteName          string
 	defaultOGImageURL string
+	siteURL           string
+	seoConfig         *SiteSEOConfig
 }
 
 // NewApp creates a new App with the given configuration.

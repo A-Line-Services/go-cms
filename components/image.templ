@@ -84,6 +84,35 @@ templ ImageEntry(e cms.EntryData, key, label string, fallback cms.ImageValue) {
 	</picture>
 }
 
+// ImageEager renders a CMS image with fetchpriority="high" and no lazy loading.
+// Use this for above-the-fold hero images to avoid LCP delays.
+templ ImageEager(p cms.PageData, key, label string, fallback cms.ImageValue) {
+	@imageStyles()
+	@imageScript()
+	{{ img := p.ImageOr(key, fallback) }}
+	<picture data-cms-field={ key } data-cms-type="image" data-cms-label={ label }>
+		if img.HasFormat("avif") {
+			<source type="image/avif" srcset={ img.SrcSetFor("avif", defaultWidths...) }/>
+		}
+		if img.HasFormat("webp") {
+			<source type="image/webp" srcset={ img.SrcSetFor("webp", defaultWidths...) }/>
+		}
+		<img
+			src={ img.Src() }
+			if img.SrcSet(defaultWidths...) != "" {
+				srcset={ img.SrcSet(defaultWidths...) }
+			}
+			alt={ img.Alt }
+			fetchpriority="high"
+			decoding="async"
+			class="cms-img"
+			if lqipBgStyle(img.LQIP()) != "" {
+				style={ templ.SafeCSS(lqipBgStyle(img.LQIP())) }
+			}
+		/>
+	</picture>
+}
+
 // ImageSimple renders a plain <img> without LQIP, srcset, or <picture> —
 // for cases like small icons or logos where the full smart image is overkill.
 templ ImageSimple(p cms.PageData, key, label string, fallback cms.ImageValue) {

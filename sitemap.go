@@ -39,8 +39,6 @@ type urlSet struct {
 type sitemapURL struct {
 	Loc        string         `xml:"loc"`
 	LastMod    string         `xml:"lastmod,omitempty"`
-	ChangeFreq string         `xml:"changefreq,omitempty"`
-	Priority   string         `xml:"priority,omitempty"`
 	Alternates []sitemapXHTML `xml:"xhtml:link,omitempty"`
 }
 
@@ -341,11 +339,14 @@ func (sd *sitemapData) write(outDir string, locales []SiteLocale) error {
 
 // makeSitemapURL creates a sitemapURL with metadata and optional hreflang alternates.
 func (sd *sitemapData) makeSitemapURL(entry sitemapURLEntry, locales []SiteLocale) sitemapURL {
+	// Add trailing slash to non-root paths to match static file serving.
+	loc := sd.siteURL + entry.path
+	if entry.path != "/" && !strings.HasSuffix(entry.path, "/") {
+		loc += "/"
+	}
 	u := sitemapURL{
-		Loc:        sd.siteURL + entry.path,
-		LastMod:    entry.lastMod,
-		ChangeFreq: entry.changeFreq,
-		Priority:   entry.priority,
+		Loc:     loc,
+		LastMod: entry.lastMod,
 	}
 	if len(locales) > 1 {
 		// Determine the content path (without locale prefix) so we can
@@ -368,7 +369,7 @@ func (sd *sitemapData) makeSitemapURL(entry sitemapURLEntry, locales []SiteLocal
 			u.Alternates = append(u.Alternates, sitemapXHTML{
 				Rel:      "alternate",
 				Hreflang: l.Code,
-				Href:     sd.siteURL + altPath,
+				Href:     sitemapTrailingSlash(sd.siteURL + altPath),
 			})
 		}
 
@@ -377,7 +378,7 @@ func (sd *sitemapData) makeSitemapURL(entry sitemapURLEntry, locales []SiteLocal
 		u.Alternates = append(u.Alternates, sitemapXHTML{
 			Rel:      "alternate",
 			Hreflang: "x-default",
-			Href:     sd.siteURL + xDefaultPath,
+			Href:     sitemapTrailingSlash(sd.siteURL + xDefaultPath),
 		})
 	}
 	return u
@@ -386,6 +387,14 @@ func (sd *sitemapData) makeSitemapURL(entry sitemapURLEntry, locales []SiteLocal
 // ---------------------------------------------------------------------------
 // robots.txt
 // ---------------------------------------------------------------------------
+
+// sitemapTrailingSlash ensures a URL ends with a trailing slash.
+func sitemapTrailingSlash(u string) string {
+	if !strings.HasSuffix(u, "/") {
+		return u + "/"
+	}
+	return u
+}
 
 // writeRobotsTxt generates a robots.txt with a Sitemap reference.
 func writeRobotsTxt(outDir, siteURL string) error {

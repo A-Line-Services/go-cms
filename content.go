@@ -27,6 +27,66 @@ type SEOData struct {
 	Keywords        string
 }
 
+// SiteSEOConfig holds site-wide SEO and business information fetched from the CMS.
+// Used to auto-generate JSON-LD structured data (LocalBusiness, Person, Service, WebSite).
+type SiteSEOConfig struct {
+	SiteName               string
+	DefaultOGImageURL      string
+	BusinessName           string
+	BusinessType           string // Schema.org type, e.g. "LocalBusiness", "InteriorDesigner"
+	StreetAddress          string
+	AddressLocality        string
+	AddressRegion          string
+	PostalCode             string
+	AddressCountry         string
+	Phone                  string
+	Email                  string
+	GeoLat                 *float64
+	GeoLng                 *float64
+	PriceRange             string
+	FoundingDate           string
+	VatID                  string
+	ServiceAreas           []string
+	OpeningHours           []OpeningHoursSpec
+	OwnerName              string
+	OwnerJobTitle          string
+	OwnerDescription       string
+	OwnerImageURL          string
+	OwnerSameAs            []string
+	Services               []ServiceSpec
+	SocialProfiles         []string
+	DefaultMetaTitle       string
+	DefaultMetaDescription string
+}
+
+// OpeningHoursSpec represents one opening hours entry.
+type OpeningHoursSpec struct {
+	Days   string `json:"days"`
+	Opens  string `json:"opens"`
+	Closes string `json:"closes"`
+}
+
+// ServiceSpec represents a service offered by the business.
+type ServiceSpec struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// HasBusiness reports whether the config has enough data to generate a LocalBusiness schema.
+func (c *SiteSEOConfig) HasBusiness() bool {
+	return c != nil && c.BusinessName != ""
+}
+
+// HasOwner reports whether the config has enough data to generate a Person schema.
+func (c *SiteSEOConfig) HasOwner() bool {
+	return c != nil && c.OwnerName != ""
+}
+
+// HasServices reports whether the config has any services defined.
+func (c *SiteSEOConfig) HasServices() bool {
+	return c != nil && len(c.Services) > 0
+}
+
 // ImageValue represents a CMS image field value.
 type ImageValue struct {
 	URL string
@@ -165,6 +225,13 @@ type PageData struct {
 	// defaultOGImageURL is the site-level fallback OG image URL.
 	// Used by SEOHead when the page has no page-level og:image.
 	defaultOGImageURL string
+
+	// siteURL is the public URL of the site (e.g. "https://example.com").
+	// Used for canonical URLs and og:url. No trailing slash.
+	siteURL string
+
+	// seoConfig holds site-wide SEO and business info for JSON-LD schemas.
+	seoConfig *SiteSEOConfig
 }
 
 // NewPageData creates a PageData with the given content.
@@ -482,6 +549,32 @@ func (p PageData) SiteName() string {
 // Returns "" if not configured.
 func (p PageData) DefaultOGImageURL() string {
 	return p.defaultOGImageURL
+}
+
+// SiteURL returns the site's public URL (e.g. "https://example.com").
+// No trailing slash. Returns "" if not known.
+func (p PageData) SiteURL() string {
+	return p.siteURL
+}
+
+// CanonicalURL returns the full canonical URL for this page.
+// Returns "" if SiteURL is not set.
+func (p PageData) CanonicalURL() string {
+	if p.siteURL == "" {
+		return ""
+	}
+	path := p.Path
+	// Add trailing slash for non-root paths to match static file serving.
+	if path != "/" && !strings.HasSuffix(path, "/") {
+		path += "/"
+	}
+	return p.siteURL + path
+}
+
+// SEOConfig returns the site-wide SEO and business information.
+// Returns nil if not fetched.
+func (p PageData) SEOConfig() *SiteSEOConfig {
+	return p.seoConfig
 }
 
 // EffectiveOGImageURL returns the page's OG image URL if set,

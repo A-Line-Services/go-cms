@@ -60,6 +60,36 @@ type apiMediaResponse struct {
 	URL string `json:"url"`
 }
 
+type apiSEOConfigResponse struct {
+	SiteName               string          `json:"site_name"`
+	DefaultOGImageURL      string          `json:"default_og_image_url"`
+	BusinessName           string          `json:"business_name"`
+	BusinessType           string          `json:"business_type"`
+	StreetAddress          string          `json:"street_address"`
+	AddressLocality        string          `json:"address_locality"`
+	AddressRegion          string          `json:"address_region"`
+	PostalCode             string          `json:"postal_code"`
+	AddressCountry         string          `json:"address_country"`
+	Phone                  string          `json:"phone"`
+	Email                  string          `json:"email"`
+	GeoLat                 *float64        `json:"geo_lat"`
+	GeoLng                 *float64        `json:"geo_lng"`
+	PriceRange             string          `json:"price_range"`
+	FoundingDate           string          `json:"founding_date"`
+	VatID                  string          `json:"vat_id"`
+	ServiceAreas           json.RawMessage `json:"service_areas"`
+	OpeningHours           json.RawMessage `json:"opening_hours"`
+	OwnerName              string          `json:"owner_name"`
+	OwnerJobTitle          string          `json:"owner_job_title"`
+	OwnerDescription       string          `json:"owner_description"`
+	OwnerImageURL          string          `json:"owner_image_url"`
+	OwnerSameAs            json.RawMessage `json:"owner_same_as"`
+	Services               json.RawMessage `json:"services"`
+	SocialProfiles         json.RawMessage `json:"social_profiles"`
+	DefaultMetaTitle       string          `json:"default_meta_title"`
+	DefaultMetaDescription string          `json:"default_meta_description"`
+}
+
 type apiEmailTemplateResponse struct {
 	Key       string               `json:"key"`
 	Label     string               `json:"label"`
@@ -242,6 +272,44 @@ func (c *Client) GetSiteInfo(ctx context.Context) (*apiSiteResponse, error) {
 		return nil, err
 	}
 	return &info, nil
+}
+
+// GetSEOConfig fetches the site-wide SEO and business information.
+func (c *Client) GetSEOConfig(ctx context.Context) (*SiteSEOConfig, error) {
+	var resp apiSEOConfigResponse
+	if err := c.do(ctx, "/seo-config", &resp); err != nil {
+		return nil, err
+	}
+	cfg := &SiteSEOConfig{
+		SiteName:               resp.SiteName,
+		DefaultOGImageURL:      resp.DefaultOGImageURL,
+		BusinessName:           resp.BusinessName,
+		BusinessType:           resp.BusinessType,
+		StreetAddress:          resp.StreetAddress,
+		AddressLocality:        resp.AddressLocality,
+		AddressRegion:          resp.AddressRegion,
+		PostalCode:             resp.PostalCode,
+		AddressCountry:         resp.AddressCountry,
+		Phone:                  resp.Phone,
+		Email:                  resp.Email,
+		GeoLat:                 resp.GeoLat,
+		GeoLng:                 resp.GeoLng,
+		PriceRange:             resp.PriceRange,
+		FoundingDate:           resp.FoundingDate,
+		VatID:                  resp.VatID,
+		OwnerName:              resp.OwnerName,
+		OwnerJobTitle:          resp.OwnerJobTitle,
+		OwnerDescription:       resp.OwnerDescription,
+		OwnerImageURL:          resp.OwnerImageURL,
+		DefaultMetaTitle:       resp.DefaultMetaTitle,
+		DefaultMetaDescription: resp.DefaultMetaDescription,
+	}
+	_ = json.Unmarshal(resp.ServiceAreas, &cfg.ServiceAreas)
+	_ = json.Unmarshal(resp.OpeningHours, &cfg.OpeningHours)
+	_ = json.Unmarshal(resp.OwnerSameAs, &cfg.OwnerSameAs)
+	_ = json.Unmarshal(resp.Services, &cfg.Services)
+	_ = json.Unmarshal(resp.SocialProfiles, &cfg.SocialProfiles)
+	return cfg, nil
 }
 
 // GetPage fetches a published page's content by path and returns a PageData.
