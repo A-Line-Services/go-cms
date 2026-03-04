@@ -57,6 +57,7 @@ type SiteSEOConfig struct {
 	SocialProfiles         []string
 	DefaultMetaTitle       string
 	DefaultMetaDescription string
+	DefaultKeywords        string
 }
 
 // OpeningHoursSpec represents one opening hours entry.
@@ -588,10 +589,12 @@ func (p PageData) EffectiveOGImageURL() string {
 
 // EffectiveTitle returns the meta title with the site name suffix appended
 // when both are set. Format: "Page Title | Site Name".
-// If only the meta title is set, returns it without suffix.
-// If only the site name is set (no meta title), returns just the site name.
+// Falls back through: page meta title → site-wide default meta title → site name.
 func (p PageData) EffectiveTitle() string {
 	title := p.SEO().MetaTitle
+	if title == "" && p.seoConfig != nil {
+		title = p.seoConfig.DefaultMetaTitle
+	}
 	if title != "" && p.siteName != "" {
 		return title + " | " + p.siteName
 	}
@@ -599,6 +602,30 @@ func (p PageData) EffectiveTitle() string {
 		return title
 	}
 	return p.siteName
+}
+
+// EffectiveDescription returns the page's meta description if set,
+// otherwise falls back to the site-wide default meta description.
+func (p PageData) EffectiveDescription() string {
+	if p.SEO().MetaDescription != "" {
+		return p.SEO().MetaDescription
+	}
+	if p.seoConfig != nil {
+		return p.seoConfig.DefaultMetaDescription
+	}
+	return ""
+}
+
+// EffectiveKeywords returns the page's keywords if set,
+// otherwise falls back to the site-wide default keywords.
+func (p PageData) EffectiveKeywords() string {
+	if p.SEO().Keywords != "" {
+		return p.SEO().Keywords
+	}
+	if p.seoConfig != nil {
+		return p.seoConfig.DefaultKeywords
+	}
+	return ""
 }
 
 // setEntryImageProcessor recursively sets the image processor on all

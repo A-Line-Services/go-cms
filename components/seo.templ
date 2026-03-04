@@ -8,11 +8,11 @@ import cms "go.a-line.be/cms"
 templ SEOHead(p cms.PageData) {
 	if p.EffectiveTitle() != "" {
 		<title>{ p.EffectiveTitle() }</title>
-		<meta property="og:title" content={ p.SEO().MetaTitle }/>
+		<meta property="og:title" content={ p.EffectiveTitle() }/>
 	}
-	if p.SEO().MetaDescription != "" {
-		<meta name="description" content={ p.SEO().MetaDescription }/>
-		<meta property="og:description" content={ p.SEO().MetaDescription }/>
+	if p.EffectiveDescription() != "" {
+		<meta name="description" content={ p.EffectiveDescription() }/>
+		<meta property="og:description" content={ p.EffectiveDescription() }/>
 	}
 	if p.EffectiveOGImageURL() != "" {
 		<meta property="og:image" content={ p.EffectiveOGImageURL() }/>
@@ -20,8 +20,8 @@ templ SEOHead(p cms.PageData) {
 	if p.SiteName() != "" {
 		<meta property="og:site_name" content={ p.SiteName() }/>
 	}
-	if p.SEO().Keywords != "" {
-		<meta name="keywords" content={ p.SEO().Keywords }/>
+	if p.EffectiveKeywords() != "" {
+		<meta name="keywords" content={ p.EffectiveKeywords() }/>
 	}
 	// Canonical URL
 	if p.CanonicalURL() != "" {

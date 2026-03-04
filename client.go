@@ -88,6 +88,7 @@ type apiSEOConfigResponse struct {
 	SocialProfiles         json.RawMessage `json:"social_profiles"`
 	DefaultMetaTitle       string          `json:"default_meta_title"`
 	DefaultMetaDescription string          `json:"default_meta_description"`
+	DefaultKeywords        string          `json:"default_keywords"`
 }
 
 type apiEmailTemplateResponse struct {
@@ -303,6 +304,7 @@ func (c *Client) GetSEOConfig(ctx context.Context) (*SiteSEOConfig, error) {
 		OwnerImageURL:          resp.OwnerImageURL,
 		DefaultMetaTitle:       resp.DefaultMetaTitle,
 		DefaultMetaDescription: resp.DefaultMetaDescription,
+		DefaultKeywords:        resp.DefaultKeywords,
 	}
 	_ = json.Unmarshal(resp.ServiceAreas, &cfg.ServiceAreas)
 	_ = json.Unmarshal(resp.OpeningHours, &cfg.OpeningHours)
