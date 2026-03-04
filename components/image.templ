@@ -176,15 +176,15 @@ templ ImageSized(p cms.PageData, key, label string, displayWidth int, fallback c
 	{{ srcOpts := append([]cms.MediaOption{cms.Width(displayWidth)}, opts...) }}
 	<picture data-cms-field={ key } data-cms-type="image" data-cms-label={ label }>
 		if img.HasFormat("avif") {
-			<source type="image/avif" srcset={ img.SrcSetFor("avif", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
+			<source type="image/avif" srcset={ img.SrcSetForWith("avif", widths, srcOpts...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
 		}
 		if img.HasFormat("webp") {
-			<source type="image/webp" srcset={ img.SrcSetFor("webp", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
+			<source type="image/webp" srcset={ img.SrcSetForWith("webp", widths, srcOpts...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
 		}
 		<img
 			src={ img.Src(srcOpts...) }
-			if img.SrcSet(widths...) != "" {
-				srcset={ img.SrcSet(widths...) }
+			if img.SrcSetWith(widths, srcOpts...) != "" {
+				srcset={ img.SrcSetWith(widths, srcOpts...) }
 			}
 			sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }
 			alt={ img.Alt }
@@ -209,15 +209,15 @@ templ ImageEntrySized(e cms.EntryData, key, label string, displayWidth int, fall
 	{{ srcOpts := append([]cms.MediaOption{cms.Width(displayWidth)}, opts...) }}
 	<picture data-cms-field={ key } data-cms-type="image" data-cms-label={ label }>
 		if img.HasFormat("avif") {
-			<source type="image/avif" srcset={ img.SrcSetFor("avif", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
+			<source type="image/avif" srcset={ img.SrcSetForWith("avif", widths, srcOpts...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
 		}
 		if img.HasFormat("webp") {
-			<source type="image/webp" srcset={ img.SrcSetFor("webp", widths...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
+			<source type="image/webp" srcset={ img.SrcSetForWith("webp", widths, srcOpts...) } sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }/>
 		}
 		<img
 			src={ img.Src(srcOpts...) }
-			if img.SrcSet(widths...) != "" {
-				srcset={ img.SrcSet(widths...) }
+			if img.SrcSetWith(widths, srcOpts...) != "" {
+				srcset={ img.SrcSetWith(widths, srcOpts...) }
 			}
 			sizes={ fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth) }
 			alt={ img.Alt }

@@ -979,6 +979,103 @@ func TestImageValue_SrcSetFor_PartiallyResolved(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// ImageValue.SrcSetWith / SrcSetForWith (cropped srcset)
+// ---------------------------------------------------------------------------
+
+func TestImageValue_SrcSetWith_NoCrop_FallsBackToSrcSet(t *testing.T) {
+	img := ImageValue{URL: "https://cdn.test/img.jpg"}
+	got := img.SrcSetWith([]int{400, 800}, Width(500))
+	want := img.SrcSet(400, 800) // no crop → identical to plain SrcSet
+	if got != want {
+		t.Errorf("SrcSetWith without crop =\n  %q\nwant\n  %q", got, want)
+	}
+}
+
+func TestImageValue_SrcSetWith_CropsAtEachWidth(t *testing.T) {
+	img := ImageValue{URL: "https://cdn.test/img.jpg"}
+	got := img.SrcSetWith([]int{250, 500}, Width(500), Height(667), Crop(), Gravity("ce"))
+	// 250w → h = 250*667/500 = 333
+	// 500w → h = 500*667/500 = 667
+	if !strings.Contains(got, "w=250&h=333&crop=true&gravity=ce 250w") {
+		t.Errorf("SrcSetWith missing 250w crop entry, got %q", got)
+	}
+	if !strings.Contains(got, "w=500&h=667&crop=true&gravity=ce 500w") {
+		t.Errorf("SrcSetWith missing 500w crop entry, got %q", got)
+	}
+}
+
+func TestImageValue_SrcSetWith_EmptyURL(t *testing.T) {
+	img := ImageValue{}
+	got := img.SrcSetWith([]int{400}, Width(400), Height(300), Crop())
+	if got != "" {
+		t.Errorf("SrcSetWith empty URL = %q, want empty", got)
+	}
+}
+
+func TestImageValue_SrcSetWith_NoWidths(t *testing.T) {
+	img := ImageValue{URL: "https://cdn.test/img.jpg"}
+	got := img.SrcSetWith(nil, Width(400), Height(300), Crop())
+	if got != "" {
+		t.Errorf("SrcSetWith no widths = %q, want empty", got)
+	}
+}
+
+func TestImageValue_SrcSetForWith_NoCrop_FallsBackToSrcSetFor(t *testing.T) {
+	img := ImageValue{URL: "https://cdn.test/img.jpg"}
+	got := img.SrcSetForWith("avif", []int{400, 800}, Width(500))
+	want := img.SrcSetFor("avif", 400, 800) // no crop → identical
+	if got != want {
+		t.Errorf("SrcSetForWith without crop =\n  %q\nwant\n  %q", got, want)
+	}
+}
+
+func TestImageValue_SrcSetForWith_CropsWithFormat(t *testing.T) {
+	img := ImageValue{URL: "https://cdn.test/img.jpg"}
+	got := img.SrcSetForWith("avif", []int{250, 500}, Width(500), Height(667), Crop(), Gravity("ce"))
+	if !strings.Contains(got, "format=avif") {
+		t.Errorf("SrcSetForWith should include format=avif, got %q", got)
+	}
+	if !strings.Contains(got, "w=250") && !strings.Contains(got, "h=333") {
+		t.Errorf("SrcSetForWith should include cropped 250w entry, got %q", got)
+	}
+	if !strings.Contains(got, "500w") {
+		t.Errorf("SrcSetForWith should include 500w descriptor, got %q", got)
+	}
+}
+
+func TestImageValue_SrcSetForWith_EmptyFormat(t *testing.T) {
+	img := ImageValue{URL: "https://cdn.test/img.jpg"}
+	got := img.SrcSetForWith("", []int{400}, Width(400), Height(300), Crop())
+	if got != "" {
+		t.Errorf("SrcSetForWith empty format = %q, want empty", got)
+	}
+}
+
+func TestImageValue_SrcSetWith_ExistingQueryString(t *testing.T) {
+	img := ImageValue{URL: "https://cdn.test/img.jpg?token=abc"}
+	got := img.SrcSetWith([]int{400}, Width(400), Height(300), Crop(), Gravity("sm"))
+	if !strings.Contains(got, "token=abc") {
+		t.Errorf("SrcSetWith should preserve existing query params, got %q", got)
+	}
+	if !strings.Contains(got, "crop=true") {
+		t.Errorf("SrcSetWith should include crop=true, got %q", got)
+	}
+}
+
+func TestImageValue_SrcSetWith_Resolved(t *testing.T) {
+	img := ImageValue{
+		URL: "https://cdn.test/img.jpg",
+		resolved: map[string]string{
+			"https://cdn.test/img.jpg?w=400&h=300&crop=true&gravity=ce": "/media/cropped-400.jpg",
+		},
+	}
+	got := img.SrcSetWith([]int{400}, Width(400), Height(300), Crop(), Gravity("ce"))
+	if !strings.Contains(got, "/media/cropped-400.jpg 400w") {
+		t.Errorf("SrcSetWith should resolve to local path, got %q", got)
+	}
+}
+
 func TestImageValue_HasFormat_NilResolved(t *testing.T) {
 	img := ImageValue{URL: "https://cdn.test/hero.jpg"}
 	if img.HasFormat("webp") {

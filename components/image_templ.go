@@ -923,9 +923,9 @@ func ImageSized(p cms.PageData, key, label string, displayWidth int, fallback cm
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var46 string
-			templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetFor("avif", widths...))
+			templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetForWith("avif", widths, srcOpts...))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 179, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 179, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 			if templ_7745c5c3_Err != nil {
@@ -938,7 +938,7 @@ func ImageSized(p cms.PageData, key, label string, displayWidth int, fallback cm
 			var templ_7745c5c3_Var47 string
 			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 179, Col: 153}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 179, Col: 166}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 			if templ_7745c5c3_Err != nil {
@@ -955,9 +955,9 @@ func ImageSized(p cms.PageData, key, label string, displayWidth int, fallback cm
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var48 string
-			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetFor("webp", widths...))
+			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetForWith("webp", widths, srcOpts...))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 182, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 182, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 			if templ_7745c5c3_Err != nil {
@@ -970,7 +970,7 @@ func ImageSized(p cms.PageData, key, label string, displayWidth int, fallback cm
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 182, Col: 153}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 182, Col: 166}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {
@@ -998,15 +998,15 @@ func ImageSized(p cms.PageData, key, label string, displayWidth int, fallback cm
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if img.SrcSet(widths...) != "" {
+		if img.SrcSetWith(widths, srcOpts...) != "" {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, " srcset=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var51 string
-			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSet(widths...))
+			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetWith(widths, srcOpts...))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 187, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 187, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 			if templ_7745c5c3_Err != nil {
@@ -1145,9 +1145,9 @@ func ImageEntrySized(e cms.EntryData, key, label string, displayWidth int, fallb
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var58 string
-			templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetFor("avif", widths...))
+			templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetForWith("avif", widths, srcOpts...))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 212, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 212, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 			if templ_7745c5c3_Err != nil {
@@ -1160,7 +1160,7 @@ func ImageEntrySized(e cms.EntryData, key, label string, displayWidth int, fallb
 			var templ_7745c5c3_Var59 string
 			templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 212, Col: 153}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 212, Col: 166}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 			if templ_7745c5c3_Err != nil {
@@ -1177,9 +1177,9 @@ func ImageEntrySized(e cms.EntryData, key, label string, displayWidth int, fallb
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var60 string
-			templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetFor("webp", widths...))
+			templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetForWith("webp", widths, srcOpts...))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 215, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 215, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 			if templ_7745c5c3_Err != nil {
@@ -1192,7 +1192,7 @@ func ImageEntrySized(e cms.EntryData, key, label string, displayWidth int, fallb
 			var templ_7745c5c3_Var61 string
 			templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("(max-width: %dpx) 100vw, %dpx", displayWidth, displayWidth))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 215, Col: 153}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 215, Col: 166}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 			if templ_7745c5c3_Err != nil {
@@ -1220,15 +1220,15 @@ func ImageEntrySized(e cms.EntryData, key, label string, displayWidth int, fallb
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if img.SrcSet(widths...) != "" {
+		if img.SrcSetWith(widths, srcOpts...) != "" {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, " srcset=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var63 string
-			templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSet(widths...))
+			templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(img.SrcSetWith(widths, srcOpts...))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 220, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/image.templ`, Line: 220, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 			if templ_7745c5c3_Err != nil {
@@ -1493,7 +1493,7 @@ func imageStyles() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<style>\n\t\t\t.cms-img {\n\t\t\t\t/* Ensure image covers the background placeholder */\n\t\t\t\tobject-fit: cover;\n\t\t\t}\n\t\t</style>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<style>\n\t\t\tpicture:has(> .cms-img) {\n\t\t\t\t/* Remove <picture> from the layout tree so the <img> sizes\n\t\t\t\t   itself against the actual container. Without this, <picture>\n\t\t\t\t   is display:inline and percentage width/height on the <img>\n\t\t\t\t   can't resolve, making the LQIP background invisible (0×0). */\n\t\t\t\tdisplay: contents;\n\t\t\t}\n\t\t\t.cms-img {\n\t\t\t\t/* Ensure image covers the background placeholder */\n\t\t\t\tobject-fit: cover;\n\t\t\t}\n\t\t</style>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

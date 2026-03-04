@@ -936,6 +936,71 @@ func (i ImageValue) LQIP() string {
 	return remote
 }
 
+// srcSetEntryOpts builds per-entry MediaOptions for a given width, scaling
+// height proportionally from the base crop options.
+func srcSetEntryOpts(w int, format string, base *requestOptions) []MediaOption {
+	opts := []MediaOption{Width(w)}
+	if format != "" {
+		opts = append(opts, Format(format))
+	}
+	if base.height > 0 && base.width > 0 {
+		opts = append(opts, Height(w*base.height/base.width))
+	}
+	opts = append(opts, Crop())
+	if base.gravity != "" {
+		opts = append(opts, Gravity(base.gravity))
+	}
+	if base.quality > 0 {
+		opts = append(opts, Quality(base.quality))
+	}
+	return opts
+}
+
+// srcSetCropped generates a cropped srcset in a specific format (or "" for original).
+func (i ImageValue) srcSetCropped(format string, widths []int, base *requestOptions) string {
+	parts := make([]string, 0, len(widths))
+	for _, w := range widths {
+		src := i.Src(srcSetEntryOpts(w, format, base)...)
+		parts = append(parts, src+" "+strconv.Itoa(w)+"w")
+	}
+	return strings.Join(parts, ", ")
+}
+
+// SrcSetWith generates a responsive srcset with additional options applied to
+// each width entry. When crop options (Height, Crop, Gravity) are present, the
+// height is scaled proportionally at each width to maintain the aspect ratio.
+// Falls back to standard SrcSet when no crop is requested.
+func (i ImageValue) SrcSetWith(widths []int, opts ...MediaOption) string {
+	if i.URL == "" || len(widths) == 0 {
+		return ""
+	}
+	base := &requestOptions{}
+	for _, fn := range opts {
+		fn(base)
+	}
+	if !base.crop {
+		return i.SrcSet(widths...)
+	}
+	return i.srcSetCropped("", widths, base)
+}
+
+// SrcSetForWith generates a format-specific responsive srcset with crop options.
+// Like SrcSetWith but forces a specific output format (e.g. "avif", "webp").
+// Falls back to standard SrcSetFor when no crop is requested.
+func (i ImageValue) SrcSetForWith(format string, widths []int, opts ...MediaOption) string {
+	if i.URL == "" || format == "" || len(widths) == 0 {
+		return ""
+	}
+	base := &requestOptions{}
+	for _, fn := range opts {
+		fn(base)
+	}
+	if !base.crop {
+		return i.SrcSetFor(format, widths...)
+	}
+	return i.srcSetCropped(format, widths, base)
+}
+
 // buildMediaURL constructs a URL with processing params.
 func buildMediaURL(baseURL string, opts ...MediaOption) string {
 	if len(opts) == 0 {
