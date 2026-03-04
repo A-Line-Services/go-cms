@@ -58,13 +58,34 @@ templ SEOHead(p cms.PageData) {
 
 // PreloadImage emits a <link rel="preload"> for a CMS image field.
 // Call this in <head> for above-the-fold hero images.
+// Prefers AVIF > WebP > original format to avoid double-fetching
+// (preload fetching the original while <picture> picks the modern format).
 templ PreloadImage(p cms.PageData, fieldKey string, fallback cms.ImageValue) {
 	if img := p.ImageOr(fieldKey, fallback); img.Src() != "" {
-		<link
-			rel="preload"
-			as="image"
-			href={ img.Src() }
-			imagesrcset={ img.SrcSet(1600) }
-		/>
+		if img.HasFormat("avif") {
+			<link
+				rel="preload"
+				as="image"
+				type="image/avif"
+				imagesrcset={ img.SrcSetFor("avif", 400, 800, 1200, 1600) }
+				imagesizes="100vw"
+			/>
+		} else if img.HasFormat("webp") {
+			<link
+				rel="preload"
+				as="image"
+				type="image/webp"
+				imagesrcset={ img.SrcSetFor("webp", 400, 800, 1200, 1600) }
+				imagesizes="100vw"
+			/>
+		} else {
+			<link
+				rel="preload"
+				as="image"
+				href={ img.Src() }
+				imagesrcset={ img.SrcSet(400, 800, 1200, 1600) }
+				imagesizes="100vw"
+			/>
+		}
 	}
 }
