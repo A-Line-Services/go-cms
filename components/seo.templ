@@ -60,22 +60,26 @@ templ SEOHead(p cms.PageData) {
 // Call this in <head> for above-the-fold hero images.
 // Prefers AVIF > WebP > original format to avoid double-fetching
 // (preload fetching the original while <picture> picks the modern format).
+//
+// Uses PreloadSrcSet which triggers format-specific downloads before checking
+// availability — without this, HasFormat returns false at <head> render time
+// because no format variants have been resolved yet.
 templ PreloadImage(p cms.PageData, fieldKey string, fallback cms.ImageValue) {
 	if img := p.ImageOr(fieldKey, fallback); img.Src() != "" {
-		if img.HasFormat("avif") {
+		if srcset := img.PreloadSrcSet("avif", 400, 800, 1200, 1600); srcset != "" {
 			<link
 				rel="preload"
 				as="image"
 				type="image/avif"
-				imagesrcset={ img.SrcSetFor("avif", 400, 800, 1200, 1600) }
+				imagesrcset={ srcset }
 				imagesizes="100vw"
 			/>
-		} else if img.HasFormat("webp") {
+		} else if srcset := img.PreloadSrcSet("webp", 400, 800, 1200, 1600); srcset != "" {
 			<link
 				rel="preload"
 				as="image"
 				type="image/webp"
-				imagesrcset={ img.SrcSetFor("webp", 400, 800, 1200, 1600) }
+				imagesrcset={ srcset }
 				imagesizes="100vw"
 			/>
 		} else {

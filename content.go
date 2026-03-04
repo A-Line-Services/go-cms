@@ -903,6 +903,20 @@ func (i ImageValue) HasFormat(format string) bool {
 	return false
 }
 
+// PreloadSrcSet attempts to resolve format-specific variants and returns the
+// srcset string if at least one variant was successfully resolved locally.
+// Returns "" if the format is not supported by the backend (all downloads fail).
+// Unlike HasFormat, this triggers downloads as a side effect, making it safe
+// to call before HasFormat — use this in <link rel="preload"> where no prior
+// SrcSetFor call has populated the resolved map yet.
+func (i ImageValue) PreloadSrcSet(format string, widths ...int) string {
+	srcset := i.SrcSetFor(format, widths...)
+	if !i.HasFormat(format) {
+		return ""
+	}
+	return srcset
+}
+
 // LQIP returns a Low Quality Image Placeholder URL (tiny 32px wide, quality 20).
 // During static builds, returns a base64 data URI if pre-resolved.
 func (i ImageValue) LQIP() string {

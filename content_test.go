@@ -1043,6 +1043,96 @@ func TestImageValue_HasFormat_DistinguishesFormats(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ImageValue PreloadSrcSet tests
+// ---------------------------------------------------------------------------
+
+func TestImageValue_PreloadSrcSet_NoDownloader(t *testing.T) {
+	// With an empty resolved map and no downloader, PreloadSrcSet should
+	// return "" because no format variants can be resolved.
+	img := ImageValue{URL: "http://example.com/img.png", resolved: map[string]string{}}
+	got := img.PreloadSrcSet("avif", 400, 800)
+	if got != "" {
+		t.Errorf("PreloadSrcSet with no dl = %q, want empty", got)
+	}
+}
+
+func TestImageValue_PreloadSrcSet_NilResolved(t *testing.T) {
+	// With nil resolved map (non-build mode), returns "".
+	img := ImageValue{URL: "http://example.com/img.png"}
+	got := img.PreloadSrcSet("avif", 400)
+	if got != "" {
+		t.Errorf("PreloadSrcSet nil resolved = %q, want empty", got)
+	}
+}
+
+func TestImageValue_PreloadSrcSet_WithResolved(t *testing.T) {
+	// When AVIF variants are already in the resolved map, returns srcset.
+	img := ImageValue{
+		URL: "http://example.com/img.png",
+		resolved: map[string]string{
+			"http://example.com/img.png?w=400&format=avif": "/media/img-400.avif",
+			"http://example.com/img.png?w=800&format=avif": "/media/img-800.avif",
+		},
+	}
+	got := img.PreloadSrcSet("avif", 400, 800)
+	if got == "" {
+		t.Fatal("PreloadSrcSet should return srcset when AVIF variants exist")
+	}
+	if !strings.Contains(got, "/media/img-400.avif 400w") {
+		t.Errorf("PreloadSrcSet missing 400w, got %q", got)
+	}
+	if !strings.Contains(got, "/media/img-800.avif 800w") {
+		t.Errorf("PreloadSrcSet missing 800w, got %q", got)
+	}
+}
+
+func TestImageValue_PreloadSrcSet_WrongFormat(t *testing.T) {
+	// When only WebP is resolved, AVIF PreloadSrcSet returns "".
+	img := ImageValue{
+		URL: "http://example.com/img.png",
+		resolved: map[string]string{
+			"http://example.com/img.png?w=400&format=webp": "/media/img-400.webp",
+		},
+	}
+	got := img.PreloadSrcSet("avif", 400)
+	if got != "" {
+		t.Errorf("PreloadSrcSet('avif') should be empty when only webp exists, got %q", got)
+	}
+}
+
+func TestImageValue_PreloadSrcSet_EmptyURL(t *testing.T) {
+	img := ImageValue{URL: "", resolved: map[string]string{}}
+	got := img.PreloadSrcSet("avif", 400)
+	if got != "" {
+		t.Errorf("PreloadSrcSet empty URL = %q, want empty", got)
+	}
+}
+
+func TestImageValue_PreloadSrcSet_EmptyFormat(t *testing.T) {
+	img := ImageValue{
+		URL:      "http://example.com/img.png",
+		resolved: map[string]string{},
+	}
+	got := img.PreloadSrcSet("", 400)
+	if got != "" {
+		t.Errorf("PreloadSrcSet empty format = %q, want empty", got)
+	}
+}
+
+func TestImageValue_PreloadSrcSet_NoWidths(t *testing.T) {
+	img := ImageValue{
+		URL: "http://example.com/img.png",
+		resolved: map[string]string{
+			"http://example.com/img.png?w=400&format=avif": "/media/img-400.avif",
+		},
+	}
+	got := img.PreloadSrcSet("avif")
+	if got != "" {
+		t.Errorf("PreloadSrcSet no widths = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // i18n: locale metadata and URL auto-prefixing
 // ---------------------------------------------------------------------------
 
