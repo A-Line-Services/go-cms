@@ -111,6 +111,9 @@ func TestClient_GetPage_RootPath(t *testing.T) {
 	}))
 
 	_, _ = client.GetPage(context.Background(), "/")
+	// Go's net/http decodes %2F → / in r.URL.Path, so we still see "//".
+	// The SDK now sends /pages/%2F on the wire to survive reverse-proxy
+	// normalisation (e.g. Traefik collapsing // → /).
 	if gotPath != "/api/v1/test-site/pages//" {
 		t.Errorf("path = %q, want /api/v1/test-site/pages//", gotPath)
 	}

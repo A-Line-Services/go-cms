@@ -252,7 +252,8 @@ func (c *Client) GetPage(ctx context.Context, pagePath string, opts ...RequestOp
 	}
 
 	// Normalize path: ensure it starts with / for the wildcard route.
-	// Root path needs "/pages//" so axum's {*path} captures "/".
+	// Root path uses URL-encoded slash (%2F) so reverse proxies like
+	// Traefik don't collapse "//" into "/" before it reaches axum.
 	normalized := pagePath
 	if !strings.HasPrefix(normalized, "/") {
 		normalized = "/" + normalized
@@ -261,7 +262,7 @@ func (c *Client) GetPage(ctx context.Context, pagePath string, opts ...RequestOp
 
 	var reqPath string
 	if normalized == "/" {
-		reqPath = "/pages//" + query
+		reqPath = "/pages/%2F" + query
 	} else {
 		reqPath = "/pages" + normalized + query
 	}
@@ -289,7 +290,7 @@ func (c *Client) GetSEO(ctx context.Context, pagePath string, opts ...RequestOpt
 
 	var seoPath string
 	if normalized == "/" {
-		seoPath = "/seo//" + query
+		seoPath = "/seo/%2F" + query
 	} else {
 		seoPath = "/seo" + normalized + query
 	}
