@@ -210,7 +210,7 @@ func SEOHead(p cms.PageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		if len(p.Locales) > 1 {
+		if len(p.Locales) > 1 && p.SiteURL() != "" {
 			for _, locale := range p.Locales {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<link rel=\"alternate\" hreflang=\"")
 				if templ_7745c5c3_Err != nil {
@@ -230,9 +230,9 @@ func SEOHead(p cms.PageData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var13 templ.SafeURL
-				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinURLErrs(p.PrefixedAlternatePath(locale.Code))
+				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinURLErrs(p.SiteURL() + p.PrefixedAlternatePath(locale.Code))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/seo.templ`, Line: 39, Col: 93}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/seo.templ`, Line: 39, Col: 107}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -248,9 +248,9 @@ func SEOHead(p cms.PageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var14 templ.SafeURL
-			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinURLErrs(p.ContentPath())
+			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinURLErrs(p.SiteURL() + p.ContentPath())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/seo.templ`, Line: 41, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/seo.templ`, Line: 41, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
