@@ -816,45 +816,74 @@ func newMediaDownloader(outDir, webPrefix string) *mediaDownloader {
 
 // processor returns an imageProcessor that downloads all variants of an
 // image and returns an ImageValue with the resolved map populated.
+// All variants are downloaded concurrently.
 func (d *mediaDownloader) processor() imageProcessor {
 	return func(img ImageValue) ImageValue {
 		if img.URL == "" {
 			return img
 		}
-		resolved := make(map[string]string)
 
-		// 1. Download the full-size image (no params).
-		if local, err := d.download(img.URL); err == nil {
-			resolved[img.URL] = local
-		}
-
-		// 2. Download LQIP and base64-inline it.
-		lqipURL := buildLQIPURL(img.URL)
-		if data, err := d.downloadBase64(lqipURL); err == nil {
-			resolved[lqipURL] = data
-		}
-
-		// 3. Download srcset width variants (original format).
 		sep := "?"
 		if strings.Contains(img.URL, "?") {
 			sep = "&"
 		}
+
+		// Collect all URLs to download: [url, isBase64]
+		type job struct {
+			url    string
+			base64 bool
+		}
+
+		var jobs []job
+
+		// 1. Full-size image.
+		jobs = append(jobs, job{url: img.URL})
+
+		// 2. LQIP (base64-inlined).
+		jobs = append(jobs, job{url: buildLQIPURL(img.URL), base64: true})
+
+		// 3. Srcset width variants (original format).
 		for _, w := range defaultSrcSetWidths {
-			variantURL := img.URL + sep + fmt.Sprintf("w=%d", w)
-			if local, err := d.download(variantURL); err == nil {
-				resolved[variantURL] = local
+			jobs = append(jobs, job{url: img.URL + sep + fmt.Sprintf("w=%d", w)})
+		}
+
+		// 4. Format variants (WebP, AVIF) for <picture> <source> elements.
+		for _, format := range defaultFormats {
+			for _, w := range defaultSrcSetWidths {
+				jobs = append(jobs, job{url: img.URL + sep + fmt.Sprintf("w=%d&format=%s", w, format)})
 			}
 		}
 
-		// 4. Download format variants (WebP, AVIF) for <picture> <source> elements.
-		//    If the backend doesn't support format conversion, downloads fail
-		//    silently and HasFormat() returns false — no <source> is rendered.
-		for _, format := range defaultFormats {
-			for _, w := range defaultSrcSetWidths {
-				variantURL := img.URL + sep + fmt.Sprintf("w=%d&format=%s", w, format)
-				if local, err := d.download(variantURL); err == nil {
-					resolved[variantURL] = local
+		// Download all variants concurrently.
+		type result struct {
+			url   string
+			local string
+		}
+		results := make([]result, len(jobs))
+		var wg sync.WaitGroup
+		wg.Add(len(jobs))
+
+		for i, j := range jobs {
+			go func(i int, j job) {
+				defer wg.Done()
+				var local string
+				var err error
+				if j.base64 {
+					local, err = d.downloadBase64(j.url)
+				} else {
+					local, err = d.download(j.url)
 				}
+				if err == nil {
+					results[i] = result{url: j.url, local: local}
+				}
+			}(i, j)
+		}
+		wg.Wait()
+
+		resolved := make(map[string]string, len(results))
+		for _, r := range results {
+			if r.local != "" {
+				resolved[r.url] = r.local
 			}
 		}
 
