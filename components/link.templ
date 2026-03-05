@@ -13,7 +13,8 @@ templ Link(p cms.PageData, key, label, fallback string) {
 		data-cms-field={ key }
 		data-cms-type="url"
 		data-cms-label={ label }
-		href={ templ.SafeURL(p.URLOr(key, fallback)) }
+		href={ templ.SafeURL(p.URLValueOr(key, fallback, "").Href) }
+		{ p.URLValueOr(key, fallback, "").Attrs()... }
 	>
 		{ children... }
 	</a>
@@ -25,7 +26,8 @@ templ LinkEntry(e cms.EntryData, key, label, fallback string) {
 		data-cms-field={ key }
 		data-cms-type="url"
 		data-cms-label={ label }
-		href={ templ.SafeURL(e.URLOr(key, fallback)) }
+		href={ templ.SafeURL(e.URLValueOr(key, fallback, "").Href) }
+		{ e.URLValueOr(key, fallback, "").Attrs()... }
 	>
 		{ children... }
 	</a>
@@ -42,6 +44,7 @@ templ LinkButton(p cms.PageData, key, label, fallbackHref, fallbackText, class s
 		data-cms-label={ label }
 		href={ templ.SafeURL(p.URLValueOr(key, fallbackHref, fallbackText).Href) }
 		class={ class }
+		{ p.URLValueOr(key, fallbackHref, fallbackText).Attrs()... }
 	>
 		{ p.URLValueOr(key, fallbackHref, fallbackText).Text }
 	</a>
@@ -56,6 +59,7 @@ templ LinkButtonEntry(e cms.EntryData, key, label, fallbackHref, fallbackText, c
 		data-cms-label={ label }
 		href={ templ.SafeURL(e.URLValueOr(key, fallbackHref, fallbackText).Href) }
 		class={ class }
+		{ e.URLValueOr(key, fallbackHref, fallbackText).Attrs()... }
 	>
 		{ e.URLValueOr(key, fallbackHref, fallbackText).Text }
 	</a>

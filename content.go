@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"strconv"
 	"strings"
+
+	"github.com/a-h/templ"
 )
 
 // SiteLocale represents a configured locale for a CMS site.
@@ -112,6 +114,21 @@ type URLValue struct {
 	Text   string
 	Title  string
 	Target string // "_self" or "_blank"
+}
+
+// URLAttrs returns conditional HTML attributes for a URL field value.
+// It adds title when non-empty and target="_blank" + rel="noopener noreferrer"
+// when the target is "_blank". Use with templ spread: { v.Attrs()... }
+func (v URLValue) Attrs() templ.Attributes {
+	attrs := templ.Attributes{}
+	if v.Title != "" {
+		attrs["title"] = v.Title
+	}
+	if v.Target == "_blank" {
+		attrs["target"] = "_blank"
+		attrs["rel"] = "noopener noreferrer"
+	}
+	return attrs
 }
 
 // CurrencyValue represents a CMS currency field value.
