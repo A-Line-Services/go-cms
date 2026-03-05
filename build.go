@@ -474,6 +474,9 @@ func (a *App) fetchAllForLocale(ctx context.Context, client *Client, jobs []fetc
 				}
 			}
 
+			// Download images embedded in rich text fields.
+			processRichTextImages(ctx, client, dl, page.fields, page.subcollections)
+
 			results[i] = fetchResult{job: job, page: page}
 		}(i, job)
 	}
@@ -513,6 +516,9 @@ func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOption
 			page.seo.OGImageURL = local
 		}
 	}
+
+	// Download images embedded in rich text fields.
+	processRichTextImages(ctx, client, dl, page.fields, page.subcollections)
 
 	// Attach site-level SEO defaults.
 	page.siteName = a.siteName
@@ -750,6 +756,85 @@ func (a *App) writeTemplateFiles(outDir string) error {
 	}
 
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Rich text image processing
+// ---------------------------------------------------------------------------
+
+// richTextImgRe matches <img> tags containing a data-media-id attribute.
+// It captures the full <img ...> tag (self-closing or not).
+var richTextImgRe = regexp.MustCompile(`<img\b[^>]*\bdata-media-id="[^"]*"[^>]*>`)
+
+// richTextMediaIDRe extracts the data-media-id value from an <img> tag.
+var richTextMediaIDRe = regexp.MustCompile(`data-media-id="([^"]+)"`)
+
+// richTextSrcRe extracts the src value from an <img> tag.
+var richTextSrcRe = regexp.MustCompile(`\bsrc="([^"]*)"`)
+
+// richTextDataAttrRe matches data-media-id and data-site-id attributes
+// (to strip from production output).
+var richTextDataAttrRe = regexp.MustCompile(`\s*data-(?:media-id|site-id)="[^"]*"`)
+
+// processRichTextImages scans page fields and subcollection entry fields for
+// rich text HTML containing <img data-media-id="..."> tags. For each image
+// found, it fetches a fresh signed URL via the CMS API, downloads the image
+// locally, and rewrites the src to the local path.
+func processRichTextImages(ctx context.Context, client *Client, dl *mediaDownloader, fields map[string]any, subcollections map[string][]EntryData) {
+	if dl == nil || fields == nil {
+		return
+	}
+
+	// Process top-level fields.
+	for key, val := range fields {
+		s, ok := val.(string)
+		if !ok || !strings.Contains(s, "data-media-id") {
+			continue
+		}
+		fields[key] = rewriteRichTextImages(ctx, client, dl, s)
+	}
+
+	// Recurse into subcollection entries.
+	for _, entries := range subcollections {
+		for i := range entries {
+			processRichTextImages(ctx, client, dl, entries[i].Fields, entries[i].Subcollections)
+		}
+	}
+}
+
+// rewriteRichTextImages replaces <img> tags in HTML that have data-media-id
+// with locally downloaded versions.
+func rewriteRichTextImages(ctx context.Context, client *Client, dl *mediaDownloader, html string) string {
+	return richTextImgRe.ReplaceAllStringFunc(html, func(imgTag string) string {
+		// Extract media ID.
+		m := richTextMediaIDRe.FindStringSubmatch(imgTag)
+		if len(m) < 2 || m[1] == "" {
+			return imgTag
+		}
+		mediaID := m[1]
+
+		// Fetch a fresh signed URL from the CMS API.
+		freshURL, err := client.GetMediaURL(ctx, mediaID, Width(800))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [warn] rich text image %s: could not fetch URL: %v\n", mediaID, err)
+			return imgTag
+		}
+
+		// Download the image locally.
+		localPath, err := dl.download(freshURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [warn] rich text image %s: download failed: %v\n", mediaID, err)
+			return imgTag
+		}
+
+		// Rewrite src to local path.
+		result := richTextSrcRe.ReplaceAllString(imgTag, `src="`+localPath+`"`)
+
+		// Strip data-media-id and data-site-id attributes from production HTML.
+		result = richTextDataAttrRe.ReplaceAllString(result, "")
+
+		return result
+	})
 }
 
 // ---------------------------------------------------------------------------

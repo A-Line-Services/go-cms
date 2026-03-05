@@ -2444,3 +2444,183 @@ func TestCopyStaticDir_EmptyDir_NoError(t *testing.T) {
 		t.Errorf("expected no error for empty dir, got: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Rich text image processing tests
+// ---------------------------------------------------------------------------
+
+func TestBuild_DownloadMedia_RichTextImages(t *testing.T) {
+	// Serve a page with a rich text field containing <img data-media-id="...">.
+	// The test server also handles the media API endpoint and image download.
+	var srvURL string
+	mediaID := "abc123-media-id"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{
+				{ID: "p1", Path: "/", Slug: "home", TemplateID: "t1"},
+			})
+		case r.URL.Path == "/api/v1/test/pages/" || r.URL.Path == "/api/v1/test/pages//":
+			// Rich text with an embedded image.
+			richHTML := `<p>Hello</p><img src="` + srvURL + `/old-signed-url.jpg?sig=old&exp=1000" data-media-id="` + mediaID + `" data-site-id="site-1" class="rte-image"><p>World</p>`
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/", Slug: "home",
+				Fields: []apiFieldValue{
+					{Key: "body", Locale: "en", Value: jsonVal(richHTML)},
+				},
+			})
+		case r.URL.Path == "/api/v1/test/media/"+mediaID:
+			// Media API: return a fresh signed URL.
+			json.NewEncoder(w).Encode(apiMediaResponse{
+				URL: srvURL + "/fresh-image.jpg?sig=fresh&exp=9999&w=800",
+			})
+		case strings.HasPrefix(r.URL.Path, "/fresh-image") || strings.HasPrefix(r.URL.Path, "/old-signed"):
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Write(fakeJPEG)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string {
+		return string(p.RichText("body"))
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{
+		OutDir:        outDir,
+		DownloadMedia: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	html, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(html)
+
+	// The image src should be rewritten to a local /media/ path.
+	if !strings.Contains(output, `src="/media/`) {
+		t.Errorf("expected img src rewritten to /media/, got: %s", output)
+	}
+
+	// The original signed URL should NOT appear.
+	if strings.Contains(output, "old-signed-url") {
+		t.Errorf("expected old signed URL removed, got: %s", output)
+	}
+
+	// data-media-id and data-site-id should be stripped.
+	if strings.Contains(output, "data-media-id") {
+		t.Errorf("expected data-media-id stripped, got: %s", output)
+	}
+	if strings.Contains(output, "data-site-id") {
+		t.Errorf("expected data-site-id stripped, got: %s", output)
+	}
+
+	// class attribute should be preserved.
+	if !strings.Contains(output, `class="rte-image"`) {
+		t.Errorf("expected class preserved, got: %s", output)
+	}
+
+	// Surrounding content should be preserved.
+	if !strings.Contains(output, "<p>Hello</p>") || !strings.Contains(output, "<p>World</p>") {
+		t.Errorf("expected surrounding content preserved, got: %s", output)
+	}
+}
+
+func TestBuild_DownloadMedia_RichTextImages_NoMediaID_Unchanged(t *testing.T) {
+	// Rich text with a regular img (no data-media-id) should be left alone.
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/test/pages" && r.Method == "GET":
+			json.NewEncoder(w).Encode([]apiPageListItem{
+				{ID: "p1", Path: "/", Slug: "home", TemplateID: "t1"},
+			})
+		case r.URL.Path == "/api/v1/test/pages/" || r.URL.Path == "/api/v1/test/pages//":
+			richHTML := `<p>Text</p><img src="` + srvURL + `/photo.jpg" alt="photo"><p>More</p>`
+			json.NewEncoder(w).Encode(apiPageResponse{
+				Path: "/", Slug: "home",
+				Fields: []apiFieldValue{
+					{Key: "body", Locale: "en", Value: jsonVal(richHTML)},
+				},
+			})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	app := NewApp(Config{APIURL: srv.URL, SiteSlug: "test", APIKey: "k"})
+	app.Page("/", testRender(func(p PageData) string {
+		return string(p.RichText("body"))
+	}))
+
+	outDir := t.TempDir()
+	err := app.Build(context.Background(), BuildOptions{
+		OutDir:        outDir,
+		DownloadMedia: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	html, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(html)
+
+	// The original URL should remain (no data-media-id = not processed).
+	if !strings.Contains(output, srvURL+"/photo.jpg") {
+		t.Errorf("expected original img src preserved, got: %s", output)
+	}
+}
+
+func TestProcessRichTextImages_NilFields(t *testing.T) {
+	// Should not panic on nil fields.
+	processRichTextImages(context.Background(), nil, nil, nil, nil)
+}
+
+func TestProcessRichTextImages_NoDownloader(t *testing.T) {
+	// When dl is nil (DownloadMedia=false), should be a no-op.
+	fields := map[string]any{
+		"body": `<img src="http://x.com/a.jpg" data-media-id="123">`,
+	}
+	processRichTextImages(context.Background(), nil, nil, fields, nil)
+
+	// Field should be unchanged.
+	if fields["body"] != `<img src="http://x.com/a.jpg" data-media-id="123">` {
+		t.Errorf("expected no change when dl=nil, got: %v", fields["body"])
+	}
+}
+
+func TestProcessRichTextImages_NonStringField_Skipped(t *testing.T) {
+	// Non-string fields should be ignored.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(fakeJPEG)
+	}))
+	defer srv.Close()
+
+	dl := newMediaDownloader(t.TempDir(), "/media")
+	fields := map[string]any{
+		"count": float64(42),
+		"flag":  true,
+	}
+	processRichTextImages(context.Background(), nil, dl, fields, nil)
+
+	// Fields should be unchanged.
+	if fields["count"] != float64(42) {
+		t.Errorf("count changed: %v", fields["count"])
+	}
+	if fields["flag"] != true {
+		t.Errorf("flag changed: %v", fields["flag"])
+	}
+}
