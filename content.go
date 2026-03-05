@@ -170,6 +170,12 @@ func (e EntryData) Currency(key string) CurrencyValue {
 	return CurrencyValue{Amount: fieldNumber(e.Fields, key)}
 }
 
+// Toggle returns a boolean field value. Returns false if not found.
+// Used with data-cms-toggle to conditionally show/hide elements.
+func (e EntryData) Toggle(key string) bool {
+	return fieldBool(e.Fields, key)
+}
+
 // Subcollection returns nested entries for the given subcollection key.
 func (e EntryData) Subcollection(key string) []EntryData {
 	if e.Subcollections == nil {
@@ -394,6 +400,25 @@ func (p PageData) NumberOr(key string, fallback float64) float64 {
 	return fieldNumber(p.fields, key)
 }
 
+// Toggle returns a boolean field value. Returns false if not found.
+// Used with data-cms-toggle to conditionally show/hide elements.
+func (p PageData) Toggle(key string) bool {
+	return fieldBool(p.fields, key)
+}
+
+// ToggleOr returns the CMS boolean value, or fallback if the key is missing.
+// When fields is nil (template/sync renders), always returns true so that the
+// element and its children are rendered for CMS schema discovery.
+func (p PageData) ToggleOr(key string, fallback bool) bool {
+	if p.fields == nil {
+		return true // always render for schema discovery
+	}
+	if _, ok := p.fields[key]; !ok {
+		return fallback
+	}
+	return fieldBool(p.fields, key)
+}
+
 // TextOr returns the CMS text value, or fallback if missing/empty.
 func (e EntryData) TextOr(key, fallback string) string {
 	if v := fieldText(e.Fields, key); v != "" {
@@ -448,6 +473,19 @@ func (e EntryData) URLValueOr(key, fallbackHref, fallbackText string) URLValue {
 	}
 	v.Href = prefixInternalHref(v.Href, e.localePrefix)
 	return v
+}
+
+// ToggleOr returns the CMS boolean value, or fallback if the key is missing.
+// When Fields is nil (template/sync renders), always returns true so that the
+// element and its children are rendered for CMS schema discovery.
+func (e EntryData) ToggleOr(key string, fallback bool) bool {
+	if e.Fields == nil {
+		return true // always render for schema discovery
+	}
+	if _, ok := e.Fields[key]; !ok {
+		return fallback
+	}
+	return fieldBool(e.Fields, key)
 }
 
 // NumberOr returns the CMS number value, or fallback if the key is missing.
@@ -738,6 +776,26 @@ func fieldImage(fields map[string]any, key string) ImageValue {
 		return ImageValue{URL: val}
 	default:
 		return ImageValue{}
+	}
+}
+
+func fieldBool(fields map[string]any, key string) bool {
+	if fields == nil {
+		return false
+	}
+	v, ok := fields[key]
+	if !ok || v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case float64:
+		return val != 0
+	case string:
+		return val == "true" || val == "1"
+	default:
+		return false
 	}
 }
 

@@ -1491,6 +1491,166 @@ func TestEntryData_URLValueOr_AutoPrefixes(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// fieldBool / Toggle / ToggleOr
+// ---------------------------------------------------------------------------
+
+func TestFieldBool_BoolTrue(t *testing.T) {
+	got := fieldBool(map[string]any{"v": true}, "v")
+	if !got {
+		t.Error("fieldBool(true) = false, want true")
+	}
+}
+
+func TestFieldBool_BoolFalse(t *testing.T) {
+	got := fieldBool(map[string]any{"v": false}, "v")
+	if got {
+		t.Error("fieldBool(false) = true, want false")
+	}
+}
+
+func TestFieldBool_Float64_Nonzero(t *testing.T) {
+	got := fieldBool(map[string]any{"v": float64(1)}, "v")
+	if !got {
+		t.Error("fieldBool(1.0) = false, want true")
+	}
+}
+
+func TestFieldBool_Float64_Zero(t *testing.T) {
+	got := fieldBool(map[string]any{"v": float64(0)}, "v")
+	if got {
+		t.Error("fieldBool(0.0) = true, want false")
+	}
+}
+
+func TestFieldBool_String_True(t *testing.T) {
+	got := fieldBool(map[string]any{"v": "true"}, "v")
+	if !got {
+		t.Error(`fieldBool("true") = false, want true`)
+	}
+}
+
+func TestFieldBool_String_One(t *testing.T) {
+	got := fieldBool(map[string]any{"v": "1"}, "v")
+	if !got {
+		t.Error(`fieldBool("1") = false, want true`)
+	}
+}
+
+func TestFieldBool_String_False(t *testing.T) {
+	got := fieldBool(map[string]any{"v": "false"}, "v")
+	if got {
+		t.Error(`fieldBool("false") = true, want false`)
+	}
+}
+
+func TestFieldBool_NilFields(t *testing.T) {
+	got := fieldBool(nil, "v")
+	if got {
+		t.Error("fieldBool(nil) = true, want false")
+	}
+}
+
+func TestFieldBool_MissingKey(t *testing.T) {
+	got := fieldBool(map[string]any{}, "v")
+	if got {
+		t.Error("fieldBool(missing) = true, want false")
+	}
+}
+
+func TestFieldBool_NilValue(t *testing.T) {
+	got := fieldBool(map[string]any{"v": nil}, "v")
+	if got {
+		t.Error("fieldBool(nil value) = true, want false")
+	}
+}
+
+func TestFieldBool_UnsupportedType(t *testing.T) {
+	got := fieldBool(map[string]any{"v": []int{1, 2}}, "v")
+	if got {
+		t.Error("fieldBool(slice) = true, want false")
+	}
+}
+
+func TestPageData_Toggle_ReturnsTrue(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{"visible": true}, nil, nil)
+	if !p.Toggle("visible") {
+		t.Error("Toggle('visible') = false, want true")
+	}
+}
+
+func TestPageData_Toggle_ReturnsFalse(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{"visible": false}, nil, nil)
+	if p.Toggle("visible") {
+		t.Error("Toggle('visible') = true, want false")
+	}
+}
+
+func TestPageData_Toggle_MissingKey(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	if p.Toggle("visible") {
+		t.Error("Toggle('visible') = true, want false for missing key")
+	}
+}
+
+func TestPageData_ToggleOr_ReturnsCMSValue(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{"show": false}, nil, nil)
+	if p.ToggleOr("show", true) {
+		t.Error("ToggleOr('show', true) = true, want false (CMS value)")
+	}
+}
+
+func TestPageData_ToggleOr_ReturnsFallback(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{}, nil, nil)
+	if !p.ToggleOr("show", true) {
+		t.Error("ToggleOr('show', true) = false, want true (fallback)")
+	}
+}
+
+func TestPageData_ToggleOr_NilFields_ReturnsTrue(t *testing.T) {
+	// When fields is nil (template/sync render), always returns true
+	// so elements render for CMS schema discovery.
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	if !p.ToggleOr("show", false) {
+		t.Error("ToggleOr(nil fields) = false, want true for schema discovery")
+	}
+}
+
+func TestEntryData_Toggle_ReturnsTrue(t *testing.T) {
+	e := EntryData{Fields: map[string]any{"active": true}}
+	if !e.Toggle("active") {
+		t.Error("EntryData.Toggle('active') = false, want true")
+	}
+}
+
+func TestEntryData_Toggle_MissingKey(t *testing.T) {
+	e := EntryData{Fields: nil}
+	if e.Toggle("active") {
+		t.Error("EntryData.Toggle('active') = true, want false for missing key")
+	}
+}
+
+func TestEntryData_ToggleOr_ReturnsCMSValue(t *testing.T) {
+	e := EntryData{Fields: map[string]any{"active": false}}
+	if e.ToggleOr("active", true) {
+		t.Error("EntryData.ToggleOr('active', true) = true, want false (CMS value)")
+	}
+}
+
+func TestEntryData_ToggleOr_ReturnsFallback(t *testing.T) {
+	e := EntryData{Fields: map[string]any{}}
+	if !e.ToggleOr("active", true) {
+		t.Error("EntryData.ToggleOr('active', true) = false, want true (fallback)")
+	}
+}
+
+func TestEntryData_ToggleOr_NilFields_ReturnsTrue(t *testing.T) {
+	e := EntryData{Fields: nil}
+	if !e.ToggleOr("active", false) {
+		t.Error("EntryData.ToggleOr(nil fields) = false, want true for schema discovery")
+	}
+}
+
 func TestSetEntryLocalePrefix(t *testing.T) {
 	entries := map[string][]EntryData{
 		"features": {

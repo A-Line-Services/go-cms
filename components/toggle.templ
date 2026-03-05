@@ -1,0 +1,44 @@
+package components
+
+import cms "go.a-line.be/cms"
+
+// Toggleable wraps child content with a CMS toggle control.
+// When disabled in the CMS editor, the element is hidden on the live site.
+// The fallback parameter sets the default visibility (true = visible).
+//
+// At build time, the element is conditionally rendered based on the CMS value.
+// In template/preview mode (no CMS data yet), it is always rendered so the
+// CMS can discover the toggle field and its child fields.
+//
+// Usage:
+//
+//	@c.Toggleable(p, "show_banner", "Show Banner", true) {
+//	  <div class="banner">...</div>
+//	}
+//
+// Or for inline use on a semantic element:
+//
+//	if p.ToggleOr("show_banner", true) {
+//	  <div data-cms-field="show_banner"
+//	       data-cms-type="toggle"
+//	       data-cms-label="Show Banner">
+//	    ...
+//	  </div>
+//	}
+templ Toggleable(p cms.PageData, key, label string, fallback bool) {
+	if p.ToggleOr(key, fallback) {
+		<div data-cms-field={ key } data-cms-type="toggle" data-cms-label={ label }>
+			{ children... }
+		</div>
+	}
+}
+
+// ToggleableEntry wraps child content with a CMS toggle control for
+// subcollection entries.
+templ ToggleableEntry(e cms.EntryData, key, label string, fallback bool) {
+	if e.ToggleOr(key, fallback) {
+		<div data-cms-field={ key } data-cms-type="toggle" data-cms-label={ label }>
+			{ children... }
+		</div>
+	}
+}
