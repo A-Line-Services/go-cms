@@ -112,6 +112,9 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 
 	// Discover locales from the CMS.
 	locales, localeErr := client.ListLocales(ctx)
+	if localeErr == nil {
+		a.locales = locales
+	}
 	multiLocale := localeErr == nil && len(locales) > 1
 
 	// Auto-detect the default locale from the CMS when not configured.
@@ -710,6 +713,8 @@ func (a *App) writeTemplateFiles(outDir string) error {
 	// Fixed pages.
 	for _, p := range a.pages {
 		data := NewPageData(p.path, pathSlug(p.path), a.config.Locale, nil, nil, nil)
+		data.Locales = a.locales
+		data.defaultLocale = a.config.Locale
 		html := a.renderPage(data)
 		if html == "" {
 			continue
@@ -726,6 +731,8 @@ func (a *App) writeTemplateFiles(outDir string) error {
 	// Collection listing pages.
 	for _, c := range a.collections {
 		data := NewPageData(c.basePath, pathSlug(c.basePath), a.config.Locale, nil, nil, nil)
+		data.Locales = a.locales
+		data.defaultLocale = a.config.Locale
 		html := a.renderPage(data)
 		if html == "" {
 			continue
@@ -742,6 +749,8 @@ func (a *App) writeTemplateFiles(outDir string) error {
 	// Collection entry templates (e.g. /blog/_template).
 	for _, c := range a.collections {
 		data := NewPageData(c.templateURL, pathSlug(c.templateURL), a.config.Locale, nil, nil, nil)
+		data.Locales = a.locales
+		data.defaultLocale = a.config.Locale
 		html := a.renderPage(data)
 		if html == "" {
 			continue
@@ -1150,16 +1159,23 @@ func resolveDefaultLocale(locales []SiteLocale, err error) string {
 	return "en"
 }
 
-// resolveLocale ensures a.config.Locale is set. If not explicitly
-// configured, it fetches the default locale from the CMS API.
+// resolveLocale ensures a.config.Locale is set and caches the full
+// locale list on the App. The cached locales are used by
+// writeTemplateFiles and SyncPayload so that conditional UI (e.g.
+// language switchers guarded by len(p.Locales) > 1) renders correctly
+// in CMS preview / sync mode.
+//
+// If the locale is already configured, only the locale list is fetched.
 // Falls back to "en" if the API is unreachable.
 func (a *App) resolveLocale(ctx context.Context) {
-	if a.config.Locale != "" {
-		return
-	}
 	client := NewClient(a.config)
 	locales, err := client.ListLocales(ctx)
-	a.config.Locale = resolveDefaultLocale(locales, err)
+	if err == nil {
+		a.locales = locales
+	}
+	if a.config.Locale == "" {
+		a.config.Locale = resolveDefaultLocale(locales, err)
+	}
 }
 
 // ---------------------------------------------------------------------------

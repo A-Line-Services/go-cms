@@ -123,6 +123,11 @@ type App struct {
 	emails      []emailTemplateDef
 	layouts     []layoutDef
 
+	// Locales discovered from the CMS, populated by resolveLocale/Build.
+	// Used to populate PageData.Locales in template/sync renders so that
+	// conditional UI (e.g. language switchers) renders in preview mode.
+	locales []SiteLocale
+
 	// Site-level SEO defaults, populated during Build from the CMS API.
 	siteName          string
 	defaultOGImageURL string

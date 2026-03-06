@@ -63,6 +63,8 @@ func (a *App) SyncPayload() SyncPayload {
 	pages := make([]SyncPage, 0, len(a.pages)+len(a.collections))
 	for _, p := range a.pages {
 		data := NewPageData(p.path, pathSlug(p.path), a.config.Locale, nil, nil, nil)
+		data.Locales = a.locales
+		data.defaultLocale = a.config.Locale
 		html := a.renderPage(data)
 		pages = append(pages, SyncPage{Path: p.path, Title: p.title, HTML: html})
 	}
@@ -70,6 +72,8 @@ func (a *App) SyncPayload() SyncPayload {
 	// Collection listing pages.
 	for _, c := range a.collections {
 		data := NewPageData(c.basePath, pathSlug(c.basePath), a.config.Locale, nil, nil, nil)
+		data.Locales = a.locales
+		data.defaultLocale = a.config.Locale
 		html := a.renderPage(data)
 		pages = append(pages, SyncPage{
 			Path:  c.basePath,
@@ -84,6 +88,8 @@ func (a *App) SyncPayload() SyncPayload {
 		collections = make([]SyncCollection, len(a.collections))
 		for i, c := range a.collections {
 			data := NewPageData(c.templateURL, pathSlug(c.templateURL), a.config.Locale, nil, nil, nil)
+			data.Locales = a.locales
+			data.defaultLocale = a.config.Locale
 			html := a.renderPage(data)
 			collections[i] = SyncCollection{
 				Key:         c.key,
