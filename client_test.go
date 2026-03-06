@@ -457,6 +457,75 @@ func TestClient_GetSEOConfig_ParsesAllFields(t *testing.T) {
 	}
 }
 
+func TestResolveSubcollections_FiltersLocale(t *testing.T) {
+	// Simulate a response where the API returns mixed-locale field values.
+	// The resolver should only keep values matching the requested locale.
+	scs := []apiSubcollection{
+		{
+			Key: "items",
+			Entries: []apiSubcollectionEntry{
+				{
+					ID: "entry-1",
+					Fields: []apiFieldValue{
+						{Key: "title", Locale: "nl", Value: jsonVal("Hallo")},
+						{Key: "title", Locale: "fr", Value: jsonVal("Bonjour")},
+						{Key: "desc", Locale: "nl", Value: jsonVal("Beschrijving")},
+						{Key: "desc", Locale: "fr", Value: jsonVal("Description")},
+					},
+				},
+			},
+		},
+	}
+
+	result := resolveSubcollections(scs, "nl")
+
+	entries := result["items"]
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	title, _ := entries[0].Fields["title"].(string)
+	desc, _ := entries[0].Fields["desc"].(string)
+
+	if title != "Hallo" {
+		t.Errorf("title = %q, want %q", title, "Hallo")
+	}
+	if desc != "Beschrijving" {
+		t.Errorf("desc = %q, want %q", desc, "Beschrijving")
+	}
+}
+
+func TestResolveSubcollections_NoLocaleKeepsAll(t *testing.T) {
+	// When locale is empty, all field values should be kept (last wins).
+	scs := []apiSubcollection{
+		{
+			Key: "items",
+			Entries: []apiSubcollectionEntry{
+				{
+					ID: "entry-1",
+					Fields: []apiFieldValue{
+						{Key: "title", Locale: "nl", Value: jsonVal("Hallo")},
+						{Key: "title", Locale: "fr", Value: jsonVal("Bonjour")},
+					},
+				},
+			},
+		},
+	}
+
+	result := resolveSubcollections(scs, "")
+
+	entries := result["items"]
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	// With empty locale, no filtering — last value wins (fr comes after nl).
+	title, _ := entries[0].Fields["title"].(string)
+	if title != "Bonjour" {
+		t.Errorf("title = %q, want %q (last value wins)", title, "Bonjour")
+	}
+}
+
 func jsonRaw(s string) json.RawMessage {
 	return json.RawMessage(s)
 }

@@ -469,17 +469,23 @@ func (c *Client) GetEmailTemplate(ctx context.Context, key string, opts ...Reque
 func (c *Client) resolvePageData(resp apiPageResponse, locale string) PageData {
 	fields := make(map[string]any)
 	for _, f := range resp.Fields {
+		// Defensive: skip field values that don't match the requested locale.
+		// The API should already filter by locale, but this prevents language
+		// mixing if the server ever returns mixed-locale data.
+		if locale != "" && f.Locale != "" && f.Locale != locale {
+			continue
+		}
 		var val any
 		_ = json.Unmarshal(f.Value, &val)
 		fields[f.Key] = val
 	}
 
-	subcollections := resolveSubcollections(resp.Subcollections)
+	subcollections := resolveSubcollections(resp.Subcollections, locale)
 
 	return NewPageData(resp.Path, resp.Slug, locale, fields, subcollections, nil)
 }
 
-func resolveSubcollections(scs []apiSubcollection) map[string][]EntryData {
+func resolveSubcollections(scs []apiSubcollection, locale string) map[string][]EntryData {
 	// Always return a non-nil map so SubcollectionOr can distinguish
 	// "production data with zero entries" (non-nil map) from "no CMS data"
 	// (nil map, used in template renders for schema discovery).
@@ -489,13 +495,17 @@ func resolveSubcollections(scs []apiSubcollection) map[string][]EntryData {
 		for _, e := range sc.Entries {
 			fields := make(map[string]any)
 			for _, f := range e.Fields {
+				// Defensive: skip field values that don't match the requested locale.
+				if locale != "" && f.Locale != "" && f.Locale != locale {
+					continue
+				}
 				var val any
 				_ = json.Unmarshal(f.Value, &val)
 				fields[f.Key] = val
 			}
 			entries = append(entries, EntryData{
 				Fields:         fields,
-				Subcollections: resolveSubcollections(e.Subcollections),
+				Subcollections: resolveSubcollections(e.Subcollections, locale),
 			})
 		}
 		result[sc.Key] = entries
