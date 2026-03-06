@@ -106,6 +106,13 @@ type ImageValue struct {
 	dl *mediaDownloader
 }
 
+// FileValue represents a CMS file field value (e.g. a downloadable PDF).
+// The CMS stores file fields as { url, filename } objects.
+type FileValue struct {
+	URL      string
+	Filename string
+}
+
 // URLValue represents a CMS URL field value.
 // The CMS stores URL fields as { href, text, title, target } objects,
 // or as plain strings (legacy/sync default).
@@ -175,6 +182,20 @@ func (e EntryData) Video(key string) string {
 // URL returns a field value as a URL string.
 func (e EntryData) URL(key string) string {
 	return fieldText(e.Fields, key)
+}
+
+// File returns a field value as a FileValue (downloadable file).
+func (e EntryData) File(key string) FileValue {
+	return fieldFile(e.Fields, key)
+}
+
+// FileOr returns the CMS file value, or fallback if missing/empty URL.
+func (e EntryData) FileOr(key string, fallback FileValue) FileValue {
+	f := fieldFile(e.Fields, key)
+	if f.URL == "" {
+		return fallback
+	}
+	return f
 }
 
 // Number returns a field value as a float64.
@@ -540,6 +561,20 @@ func (p PageData) URL(key string) string {
 	return fieldText(p.fields, key)
 }
 
+// File returns a field value as a FileValue (downloadable file).
+func (p PageData) File(key string) FileValue {
+	return fieldFile(p.fields, key)
+}
+
+// FileOr returns the CMS file value, or fallback if missing/empty URL.
+func (p PageData) FileOr(key string, fallback FileValue) FileValue {
+	f := fieldFile(p.fields, key)
+	if f.URL == "" {
+		return fallback
+	}
+	return f
+}
+
 // Number returns a field value as a float64. Returns 0 if not found.
 func (p PageData) Number(key string) float64 {
 	return fieldNumber(p.fields, key)
@@ -793,6 +828,27 @@ func fieldImage(fields map[string]any, key string) ImageValue {
 		return ImageValue{URL: val}
 	default:
 		return ImageValue{}
+	}
+}
+
+func fieldFile(fields map[string]any, key string) FileValue {
+	if fields == nil {
+		return FileValue{}
+	}
+	v, ok := fields[key]
+	if !ok || v == nil {
+		return FileValue{}
+	}
+	switch val := v.(type) {
+	case map[string]any:
+		url, _ := val["url"].(string)
+		filename, _ := val["filename"].(string)
+		return FileValue{URL: url, Filename: filename}
+	case string:
+		// Plain string treated as URL
+		return FileValue{URL: val}
+	default:
+		return FileValue{}
 	}
 }
 
