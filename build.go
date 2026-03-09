@@ -208,6 +208,14 @@ func (a *App) Build(ctx context.Context, opts BuildOptions) error {
 		fmt.Fprintf(os.Stderr, "  [ok]   sitemap.xml + robots.txt written\n")
 	}
 
+	// Write deploy version file so the CMS can verify the deployment is live.
+	if siteInfoErr == nil && siteInfo != nil && siteInfo.DeployVersion != nil && *siteInfo.DeployVersion != "" {
+		versionPath := filepath.Join(opts.OutDir, "__cms_version")
+		if err := os.WriteFile(versionPath, []byte(*siteInfo.DeployVersion), 0644); err != nil {
+			return fmt.Errorf("cms: write __cms_version: %w", err)
+		}
+	}
+
 	// Write sync payload if requested.
 	if opts.SyncFile != "" {
 		if err := a.WriteSyncJSON(opts.SyncFile); err != nil {

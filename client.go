@@ -112,6 +112,7 @@ type apiSiteResponse struct {
 	DefaultLocale     string  `json:"default_locale"`
 	SiteName          *string `json:"site_name"`
 	DefaultOGImageURL *string `json:"default_og_image_url"`
+	DeployVersion     *string `json:"deploy_version"`
 }
 
 type apiEmailFieldValue struct {
