@@ -153,6 +153,7 @@ type EntryData struct {
 	Subcollections map[string][]EntryData
 	imgProc        imageProcessor
 	localePrefix   string
+	rtLinkClass    string
 }
 
 // Text returns a field value as a string.
@@ -277,6 +278,9 @@ type PageData struct {
 
 	// seoConfig holds site-wide SEO and business info for JSON-LD schemas.
 	seoConfig *SiteSEOConfig
+
+	// rtLinkClass is the CSS class injected onto <a> tags in rich text HTML.
+	rtLinkClass string
 }
 
 // NewPageData creates a PageData with the given content.
@@ -380,11 +384,16 @@ func (p PageData) TextOr(key, fallback string) string {
 }
 
 // RichTextOr returns the CMS rich text value, or fallback if missing/empty.
+// When RichTextLinkClass is configured, injects the class onto <a> tags.
 func (p PageData) RichTextOr(key string, fallback string) template.HTML {
-	if v := fieldText(p.fields, key); v != "" {
-		return template.HTML(v)
+	v := fieldText(p.fields, key)
+	if v == "" {
+		v = fallback
 	}
-	return template.HTML(fallback)
+	if p.rtLinkClass != "" {
+		v = addRichTextLinkClass(v, p.rtLinkClass)
+	}
+	return template.HTML(v)
 }
 
 // ImageOr returns the CMS image value, or fallback if missing/empty URL.
@@ -466,11 +475,16 @@ func (e EntryData) TextOr(key, fallback string) string {
 }
 
 // RichTextOr returns the CMS rich text value, or fallback if missing/empty.
+// When RichTextLinkClass is configured, injects the class onto <a> tags.
 func (e EntryData) RichTextOr(key string, fallback string) template.HTML {
-	if v := fieldText(e.Fields, key); v != "" {
-		return template.HTML(v)
+	v := fieldText(e.Fields, key)
+	if v == "" {
+		v = fallback
 	}
-	return template.HTML(fallback)
+	if e.rtLinkClass != "" {
+		v = addRichTextLinkClass(v, e.rtLinkClass)
+	}
+	return template.HTML(v)
 }
 
 // ImageOr returns the CMS image value, or fallback if missing/empty URL.
@@ -725,6 +739,32 @@ func setEntryImageProcessor(subcollections map[string][]EntryData, proc imagePro
 		for i := range entries {
 			entries[i].imgProc = proc
 			setEntryImageProcessor(entries[i].Subcollections, proc)
+		}
+		subcollections[key] = entries
+	}
+}
+
+// addRichTextLinkClass injects a CSS class onto <a> tags in rich text HTML.
+// The CMS editor adds class="rte-link" to all links, so this replaces that
+// with class="rte-link <linkClass>" to apply site-configured styling.
+func addRichTextLinkClass(html, linkClass string) string {
+	return strings.ReplaceAll(html, `class="rte-link"`, `class="rte-link `+linkClass+`"`)
+}
+
+// RichTextLinkClass returns the configured CSS class for rich text links.
+// Returns "" if not configured. Useful for sites that need to know the
+// class for custom styling.
+func (p PageData) RichTextLinkClass() string {
+	return p.rtLinkClass
+}
+
+// setEntryRichTextLinkClass recursively sets the rich text link class on all
+// subcollection entries.
+func setEntryRichTextLinkClass(subcollections map[string][]EntryData, class string) {
+	for key, entries := range subcollections {
+		for i := range entries {
+			entries[i].rtLinkClass = class
+			setEntryRichTextLinkClass(entries[i].Subcollections, class)
 		}
 		subcollections[key] = entries
 	}

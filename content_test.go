@@ -1651,6 +1651,111 @@ func TestEntryData_ToggleOr_NilFields_ReturnsTrue(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// addRichTextLinkClass / RichTextLinkClass
+// ---------------------------------------------------------------------------
+
+func TestAddRichTextLinkClass_InjectsClass(t *testing.T) {
+	html := `<p>Hello <a class="rte-link" href="/about">link</a></p>`
+	got := addRichTextLinkClass(html, "cms-link")
+	want := `<p>Hello <a class="rte-link cms-link" href="/about">link</a></p>`
+	if got != want {
+		t.Errorf("addRichTextLinkClass =\n  %q\nwant\n  %q", got, want)
+	}
+}
+
+func TestAddRichTextLinkClass_MultipleLinks(t *testing.T) {
+	html := `<a class="rte-link" href="/a">A</a> and <a class="rte-link" href="/b">B</a>`
+	got := addRichTextLinkClass(html, "my-link")
+	if strings.Count(got, "my-link") != 2 {
+		t.Errorf("expected 2 occurrences of 'my-link', got %q", got)
+	}
+}
+
+func TestAddRichTextLinkClass_NoLinks_Unchanged(t *testing.T) {
+	html := `<p>No links here</p>`
+	got := addRichTextLinkClass(html, "cms-link")
+	if got != html {
+		t.Errorf("addRichTextLinkClass changed non-link HTML: %q", got)
+	}
+}
+
+func TestAddRichTextLinkClass_EmptyClass_NoOp(t *testing.T) {
+	// When called with empty class, the function is not called in production
+	// (guarded by if), but verify it doesn't corrupt HTML.
+	html := `<a class="rte-link" href="/x">X</a>`
+	got := addRichTextLinkClass(html, "")
+	want := `<a class="rte-link " href="/x">X</a>`
+	if got != want {
+		t.Errorf("addRichTextLinkClass('') = %q, want %q", got, want)
+	}
+}
+
+func TestPageData_RichTextOr_InjectsLinkClass(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{
+		"body": `<p><a class="rte-link" href="/about">About</a></p>`,
+	}, nil, nil)
+	p.rtLinkClass = "cms-link"
+
+	got := string(p.RichTextOr("body", "<p>fallback</p>"))
+	if !strings.Contains(got, `class="rte-link cms-link"`) {
+		t.Errorf("RichTextOr did not inject link class: %q", got)
+	}
+}
+
+func TestPageData_RichTextOr_NoClassConfigured_Unchanged(t *testing.T) {
+	p := NewPageData("/", "home", "en", map[string]any{
+		"body": `<p><a class="rte-link" href="/about">About</a></p>`,
+	}, nil, nil)
+	// rtLinkClass is "" (zero value)
+
+	got := string(p.RichTextOr("body", "<p>fallback</p>"))
+	if strings.Contains(got, "cms-link") {
+		t.Errorf("RichTextOr injected class when none configured: %q", got)
+	}
+}
+
+func TestPageData_RichTextLinkClass_Accessor(t *testing.T) {
+	p := NewPageData("/", "home", "en", nil, nil, nil)
+	p.rtLinkClass = "themed-link"
+	if got := p.RichTextLinkClass(); got != "themed-link" {
+		t.Errorf("RichTextLinkClass() = %q, want 'themed-link'", got)
+	}
+}
+
+func TestEntryData_RichTextOr_InjectsLinkClass(t *testing.T) {
+	e := EntryData{
+		Fields:      map[string]any{"desc": `<a class="rte-link" href="/x">X</a>`},
+		rtLinkClass: "cms-link",
+	}
+	got := string(e.RichTextOr("desc", ""))
+	if !strings.Contains(got, `class="rte-link cms-link"`) {
+		t.Errorf("EntryData.RichTextOr did not inject link class: %q", got)
+	}
+}
+
+func TestSetEntryRichTextLinkClass(t *testing.T) {
+	entries := map[string][]EntryData{
+		"features": {
+			{
+				Fields: map[string]any{},
+				Subcollections: map[string][]EntryData{
+					"nested": {{Fields: map[string]any{}}},
+				},
+			},
+		},
+	}
+
+	setEntryRichTextLinkClass(entries, "cms-link")
+
+	if entries["features"][0].rtLinkClass != "cms-link" {
+		t.Error("top-level entry rtLinkClass not set")
+	}
+	if entries["features"][0].Subcollections["nested"][0].rtLinkClass != "cms-link" {
+		t.Error("nested entry rtLinkClass not set")
+	}
+}
+
 func TestSetEntryLocalePrefix(t *testing.T) {
 	entries := map[string][]EntryData{
 		"features": {

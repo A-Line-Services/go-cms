@@ -470,6 +470,11 @@ func (a *App) fetchAllForLocale(ctx context.Context, client *Client, jobs []fetc
 				setEntryImageProcessor(page.subcollections, imgProc)
 			}
 
+			if a.config.RichTextLinkClass != "" {
+				page.rtLinkClass = a.config.RichTextLinkClass
+				setEntryRichTextLinkClass(page.subcollections, a.config.RichTextLinkClass)
+			}
+
 			// Download OG image so <meta property="og:image"> uses a local path.
 			if dl != nil && page.seo != nil && page.seo.OGImageURL != "" {
 				if local, err := dl.download(page.seo.OGImageURL); err == nil {
@@ -511,6 +516,11 @@ func (a *App) buildOnePage(ctx context.Context, client *Client, opts BuildOption
 	if imgProc != nil {
 		page.imgProc = imgProc
 		setEntryImageProcessor(page.subcollections, imgProc)
+	}
+
+	if a.config.RichTextLinkClass != "" {
+		page.rtLinkClass = a.config.RichTextLinkClass
+		setEntryRichTextLinkClass(page.subcollections, a.config.RichTextLinkClass)
 	}
 
 	// Download OG image so <meta property="og:image"> uses a local path.

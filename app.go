@@ -42,6 +42,14 @@ type Config struct {
 	// Use this to reload Vite manifests or other state that may have
 	// changed on disk since the last build.
 	BeforeRebuild func()
+
+	// RichTextLinkClass is the CSS class added to <a> tags inside rich
+	// text content. When set, go-cms replaces `class="rte-link"` with
+	// `class="rte-link <RichTextLinkClass>"` in rich text HTML at render
+	// time, and injects a <meta name="cms-link-class"> tag so the CMS
+	// preview bridge can apply the same class during live editing.
+	// Example: "cms-link"
+	RichTextLinkClass string
 }
 
 // RenderFunc creates a templ Component from page data.

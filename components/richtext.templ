@@ -2,10 +2,26 @@ package components
 
 import cms "go.a-line.be/cms"
 
+// linkClassMetaOnce ensures the <meta name="cms-link-class"> tag is injected
+// only once per page, so the CMS preview bridge knows which CSS class to apply
+// to <a> tags inside rich text fields during live editing.
+var linkClassMetaOnce = templ.NewOnceHandle()
+
+// linkClassMeta injects a <meta> tag with the configured rich text link class.
+// The CMS preview bridge reads this to apply the same class during live edits.
+templ linkClassMeta(class string) {
+	@linkClassMetaOnce.Once() {
+		<meta name="cms-link-class" content={ class }/>
+	}
+}
+
 // RichText renders a CMS rich text field as a <div> with raw HTML content.
 // The fallback HTML appears when CMS has no content, and is extracted
 // by the CMS sync crawler as the default value.
 templ RichText(p cms.PageData, key, label, fallback string) {
+	if p.RichTextLinkClass() != "" {
+		@linkClassMeta(p.RichTextLinkClass())
+	}
 	<div data-cms-field={ key } data-cms-type="rich_text" data-cms-label={ label }>
 		@templ.Raw(string(p.RichTextOr(key, fallback)))
 	</div>
