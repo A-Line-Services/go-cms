@@ -203,7 +203,6 @@ try{var u=new URL(a.href,location.origin);if(u.origin===location.origin)prefetch
 },{capture:true,passive:true});
 
 w.addEventListener("popstate",function(){
-cur=location.pathname;
 navigate(location.href,false);
 });
 })();`
